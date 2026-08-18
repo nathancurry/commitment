@@ -1,0 +1,56 @@
+# operating systems
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.Trash-*
+Thumbs.db
+Desktop.ini
+
+# editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.python-version.local
+.venv/
+venv/
+env/
+
+# packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# tests and analysis
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# temporary files
+.cache/
+*.log
+*.tmp
+*.pid

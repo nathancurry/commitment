@@ -1,16 +1,18 @@
 # roadmap
 
-current state: design docs only.
+current state: phase 0 journal-only bootstrap implemented. full operator installation instructions remain next pass.
 
 ## `v0.1.0-bootstrap`
 
 build last human-written generation.
 
-- implement custom harness for repo inspection, one-task selection, bounded edits, tests, journal, and result reporting
+- implement custom harness for repo inspection, one-task selection, bounded journal output, validation, and result reporting
 - connect to host Ollama with configurable model selection for available hardware. use `gpt-oss:20b` as initial example
 - implement small supervisor with policy validation and non-pushing modes
 - package agent as one-shot rootless Podman container
 - document reproducible install and manual verification
+
+implemented slice permits one journal file, dry-run, apply, and local commit. arbitrary edits, push, scheduling, and complete operator documentation remain deferred.
 
 exit: human can run complete validated cycle manually. create tag before first model-written commit.
 
