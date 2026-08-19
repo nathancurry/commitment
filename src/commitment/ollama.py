@@ -10,33 +10,34 @@ from commitment.result import ModelError, PolicyError, validate_timeout
 DEFAULT_MODEL = "gpt-oss:20b"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 MAX_REQUEST_BYTES = 768 * 1024
-MAX_RESPONSE_BYTES = 64 * 1024
+MAX_RESPONSE_BYTES = 256 * 1024
 MAX_HEADER_BYTES = 16 * 1024
 MAX_HEADERS = 64
 MAX_CONNECTION_SECONDS = 5.0
-MAX_HEADER_SECONDS = 10.0
 MAX_BODY_SECONDS = 120.0
+# Non-streaming Ollama generates before sending response headers.
+MAX_HEADER_SECONDS = MAX_BODY_SECONDS
 
-JOURNAL_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "path": {
-            "type": "string",
-            "pattern": r"^journal/[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$",
-        },
-        "content": {"type": "string"},
-    },
-    "required": ["path", "content"],
-    "additionalProperties": False,
-}
+# Context contract: every UTF-8 byte may consume one token. The model-side
+# template and prompt framing have their own reserve, separate from output.
+CONTEXT_TOKENS = 16_384
+RESERVED_OUTPUT_TOKENS = 4_096
+TEMPLATE_FRAMING_RESERVE_TOKENS = 2_048
+WORST_CASE_TOKENS_PER_UTF8_BYTE = 1
+MAX_PROMPT_BYTES = (
+    CONTEXT_TOKENS
+    - RESERVED_OUTPUT_TOKENS
+    - TEMPLATE_FRAMING_RESERVE_TOKENS
+) // WORST_CASE_TOKENS_PER_UTF8_BYTE
 
 GENERATION_OPTIONS = {
-    "temperature": 0,
+    "temperature": 1,
     "seed": 0,
-    "top_k": 1,
-    "top_p": 0.1,
-    "num_predict": 2048,
+    "top_p": 1,
+    "num_ctx": CONTEXT_TOKENS,
+    "num_predict": RESERVED_OUTPUT_TOKENS,
 }
+THINK_LEVEL = "low"
 
 
 def validate_ollama_url(url: str) -> str:
@@ -60,12 +61,15 @@ def validate_ollama_url(url: str) -> str:
 def build_request(prompt: str, model: str) -> bytes:
     if not model or "\x00" in model or len(model.encode("utf-8")) > 256:
         raise PolicyError("model must be a nonempty string without null bytes")
+    prompt_bytes = len(prompt.encode("utf-8"))
+    if prompt_bytes > MAX_PROMPT_BYTES:
+        raise PolicyError(f"model prompt exceeds {MAX_PROMPT_BYTES} UTF-8 bytes")
     payload = json.dumps(
         {
             "model": model,
             "prompt": prompt,
             "stream": False,
-            "format": JOURNAL_SCHEMA,
+            "think": THINK_LEVEL,
             "options": GENERATION_OPTIONS,
         },
         separators=(",", ":"),
@@ -82,14 +86,16 @@ def validate_request(raw: bytes, model: str) -> None:
         value = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise PolicyError("prepare container returned malformed request JSON") from exc
-    expected_keys = {"model", "prompt", "stream", "format", "options"}
+    expected_keys = {"model", "prompt", "stream", "think", "options"}
     if not isinstance(value, dict) or set(value) != expected_keys:
         raise PolicyError("prepare container returned unexpected request fields")
     if value["model"] != model or not isinstance(value["prompt"], str):
         raise PolicyError("prepare container returned invalid model or prompt")
+    if len(value["prompt"].encode("utf-8")) > MAX_PROMPT_BYTES:
+        raise PolicyError(f"prepared model prompt exceeds {MAX_PROMPT_BYTES} UTF-8 bytes")
     if (
         value["stream"] is not False
-        or value["format"] != JOURNAL_SCHEMA
+        or value["think"] != THINK_LEVEL
         or value["options"] != GENERATION_OPTIONS
     ):
         raise PolicyError("prepare container returned unsafe generation settings")
@@ -106,7 +112,34 @@ def parse_response(raw: bytes) -> str:
         raise ModelError(f"Ollama generation failed: {document['error']}")
     if not isinstance(document, dict) or not isinstance(document.get("response"), str):
         raise ModelError("Ollama response is missing string field 'response'")
+    if document.get("truncated") is True:
+        raise ModelError("Ollama reported truncated input")
+    if document.get("done") is False:
+        raise ModelError("Ollama returned an incomplete non-streaming response")
+    if document.get("done_reason") in {"length", "max_tokens"}:
+        raise ModelError("Ollama generation exhausted its output budget")
+    prompt_tokens = _optional_count(document, "prompt_eval_count")
+    output_tokens = _optional_count(document, "eval_count")
+    if (
+        prompt_tokens is not None
+        and prompt_tokens + RESERVED_OUTPUT_TOKENS > CONTEXT_TOKENS
+    ):
+        raise ModelError("Ollama reported an inconsistent prompt context budget")
+    if output_tokens is not None and output_tokens > RESERVED_OUTPUT_TOKENS:
+        raise ModelError("Ollama reported an inconsistent output token count")
+    context = document.get("context")
+    if isinstance(context, list) and len(context) > CONTEXT_TOKENS:
+        raise ModelError("Ollama reported an oversized context")
     return document["response"]
+
+
+def _optional_count(document: dict[object, object], field: str) -> int | None:
+    value = document.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ModelError(f"Ollama response has invalid {field}")
+    return value
 
 
 def _remaining(deadline: float, phase_deadline: float, label: str) -> float:

@@ -9,8 +9,21 @@ from contextlib import contextmanager
 from collections.abc import Iterator
 from unittest import mock
 
-from commitment.ollama import MAX_HEADER_BYTES, request_ollama
-from commitment.result import ModelError
+from commitment.ollama import (
+    CONTEXT_TOKENS,
+    GENERATION_OPTIONS,
+    MAX_BODY_SECONDS,
+    MAX_HEADER_BYTES,
+    MAX_HEADER_SECONDS,
+    MAX_PROMPT_BYTES,
+    RESERVED_OUTPUT_TOKENS,
+    TEMPLATE_FRAMING_RESERVE_TOKENS,
+    WORST_CASE_TOKENS_PER_UTF8_BYTE,
+    build_request,
+    parse_response,
+    request_ollama,
+)
+from commitment.result import ModelError, PolicyError
 
 
 def loopback_available() -> bool:
@@ -66,8 +79,69 @@ def fake_server(response: bytes, *, delay: float = 0) -> Iterator[tuple[str, lis
         thread.join(timeout=2)
 
 
+class ContextContractTests(unittest.TestCase):
+    def test_context_contract_arithmetic_and_generation_settings(self) -> None:
+        self.assertEqual(
+            MAX_PROMPT_BYTES * WORST_CASE_TOKENS_PER_UTF8_BYTE
+            + TEMPLATE_FRAMING_RESERVE_TOKENS
+            + RESERVED_OUTPUT_TOKENS,
+            CONTEXT_TOKENS,
+        )
+        self.assertEqual(GENERATION_OPTIONS["num_ctx"], CONTEXT_TOKENS)
+        self.assertEqual(
+            GENERATION_OPTIONS["num_predict"], RESERVED_OUTPUT_TOKENS
+        )
+
+    def test_exact_prompt_byte_boundary_and_one_byte_over(self) -> None:
+        hostile = "".join(chr(33 + index % 94) for index in range(MAX_PROMPT_BYTES))
+        self.assertEqual(len(hostile.encode("utf-8")), MAX_PROMPT_BYTES)
+        request = json.loads(build_request(hostile, "local-model"))
+        self.assertEqual(request["prompt"], hostile)
+        with self.assertRaisesRegex(PolicyError, "prompt exceeds"):
+            build_request(hostile + "x", "local-model")
+
+    def test_multibyte_prompt_uses_utf8_byte_boundary(self) -> None:
+        emoji = "\N{GRINNING FACE}" * (MAX_PROMPT_BYTES // 4)
+        self.assertEqual(len(emoji.encode("utf-8")), MAX_PROMPT_BYTES)
+        build_request(emoji, "local-model")
+        with self.assertRaisesRegex(PolicyError, "prompt exceeds"):
+            build_request(emoji + "x", "local-model")
+
+    def test_truncation_and_inconsistent_context_metadata_are_rejected(self) -> None:
+        cases = (
+            ({"response": "{}", "truncated": True}, "truncated input"),
+            ({"response": "{}", "done": False}, "incomplete"),
+            ({"response": "{}", "done_reason": "length"}, "output budget"),
+            (
+                {
+                    "response": "{}",
+                    "prompt_eval_count": CONTEXT_TOKENS
+                    - RESERVED_OUTPUT_TOKENS
+                    + 1,
+                },
+                "prompt context budget",
+            ),
+            (
+                {"response": "{}", "eval_count": RESERVED_OUTPUT_TOKENS + 1},
+                "output token count",
+            ),
+            (
+                {"response": "{}", "context": [0] * (CONTEXT_TOKENS + 1)},
+                "oversized context",
+            ),
+        )
+        for document, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(
+                ModelError, message
+            ):
+                parse_response(json.dumps(document).encode())
+
+
 @unittest.skipUnless(LOOPBACK_AVAILABLE, "loopback sockets unavailable in test sandbox")
 class OllamaTests(unittest.TestCase):
+    def test_nonstreaming_generation_has_full_header_budget(self) -> None:
+        self.assertEqual(MAX_HEADER_SECONDS, MAX_BODY_SECONDS)
+
     def test_direct_request_is_exactly_once_and_bounded(self) -> None:
         body = json.dumps({"response": "{}"}).encode()
         response = (
@@ -101,6 +175,17 @@ class OllamaTests(unittest.TestCase):
         response = (
             b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
             b"Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n" + framed
+        )
+        with fake_server(response) as (url, _):
+            self.assertEqual(request_ollama(b"{}", url, 1), body)
+
+    def test_bounded_reasoning_metadata_is_supported(self) -> None:
+        body = json.dumps({"response": "{}", "thinking": "x" * (64 * 1024)}).encode()
+        response = (
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+            + str(len(body)).encode()
+            + b"\r\nConnection: close\r\n\r\n"
+            + body
         )
         with fake_server(response) as (url, _):
             self.assertEqual(request_ollama(b"{}", url, 1), body)

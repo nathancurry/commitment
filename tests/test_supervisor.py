@@ -28,7 +28,7 @@ from commitment.supervisor import (
 )
 
 JOURNAL_PATH = "journal/2026-08-18-bounded-run.md"
-JOURNAL_CONTENT = b"me read repo.\nme write one journal.\n"
+JOURNAL_CONTENT = b"I read the repository.\nI wrote one journal.\n"
 
 
 def git(repo: Path, *arguments: str, check: bool = True) -> str:
@@ -329,6 +329,20 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(executor.snapshot_readme, b"# commitment\n")
         self.assertEqual(len(ollama.requests), 1)
         self.assertEqual(repository_state(self.repo), before)
+        publication_commands = {
+            "hash-object",
+            "update-index",
+            "write-tree",
+            "commit-tree",
+            "update-ref",
+        }
+        self.assertFalse(
+            publication_commands.intersection(
+                argument
+                for command, _ in executor.git_commands
+                for argument in command
+            )
+        )
 
     def test_apply_and_commit_publish_only_validated_bytes(self) -> None:
         before = git(self.repo, "rev-parse", "HEAD").strip()

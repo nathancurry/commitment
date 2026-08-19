@@ -1,71 +1,73 @@
-# design
+# Commitment design
 
-## current state
+## Current state
 
-phase 0 implements one journal-only vertical slice. host supervisor, containerized agent, Ollama client, validation policy, local apply, and local commit exist. push, scheduling, and arbitrary self-modification remain planned.
+Phase 0 implements one journal-only vertical slice. The host supervisor, containerized agent, Ollama client, validation policy, local apply, and local commit exist. Push, scheduling, and arbitrary self-modification remain planned.
 
-## architecture
+## Architecture
 
-commitment uses custom harness with minimal dependencies. it has four parts.
+Commitment uses a custom harness with minimal dependencies. It has four parts.
 
-### host model
+### Host model
 
-Ollama runs on Linux workstation. operator configures model selection for available hardware. `gpt-oss:20b` is initial example model, not universal requirement. RTX 5070 Ti 16 GB and 32 GB system RAM are one example sizing profile, not project identity or minimum requirement. model stays outside container so mutable code cannot administer model service.
+Ollama runs on a Linux workstation. The operator configures model selection for available hardware. `gpt-oss:20b` is an initial example model, not a universal requirement. An RTX 5070 Ti with 16 GB and 32 GB of system RAM is one example sizing profile, not the project identity or a minimum requirement. The model stays outside the container so mutable code cannot administer the model service.
 
-### isolated container stages
+### Isolated container stages
 
-two rootless Podman containers run per invocation. prepare receives the pinned repository snapshot read-only, inspects tracked files, and emits bounded Ollama request JSON through stdout. render receives the bounded Ollama response through stdin, validates model output, and emits a structured journal result through stdout.
+Two rootless Podman containers run per invocation. Prepare receives the pinned repository snapshot read-only, inspects tracked files, and emits bounded Ollama request JSON through stdout. The request uses a 16,384-token context, reserves 4,096 output tokens and 2,048 template and framing tokens, and limits the prompt to 10,240 UTF-8 bytes under a conservative one-token-per-byte upper bound. Render receives the bounded Ollama response through stdin, validates model output, and emits a structured journal result through stdout.
 
-both stages use `--userns=nomap`, fixed UID/GID `10001:10001`, `--network none`, a read-only root filesystem, dropped capabilities, `no-new-privileges`, resource limits, bounded stdin/stdout/stderr, and bounded runtime. the wheel-installed package runs with `python -I` from `/opt/commitment`; the repository mount at `/repo` is neither working directory nor import path. neither stage has a writable bind, volume, or tmpfs. prepare has one read-only repository mount. render has no mounts. model output stays data and is never executed.
+Snapshot inspection and prompt selection have separate limits. Prepare manifests every tracked regular file from the snapshot. It includes only whole UTF-8 file contents, prioritizing `VOICE.md`, `README.md`, `DESIGN.md`, `ROADMAP.md`, and `OPERATIONS.md`, then remaining paths in UTF-8 byte order. Manifest states mark included, omitted, and non-UTF-8 files. Fixed-width summary fields report included and omitted byte totals and zero partial files. Prepare fails when the framing and full manifest cannot fit. Omission changes model visibility, so a journal may use only the included evidence.
 
-### host supervisor
+Both stages use `--userns=nomap`, fixed UID/GID `10001:10001`, `--network none`, a read-only root filesystem, dropped capabilities, `no-new-privileges`, resource limits, bounded stdin/stdout/stderr, and bounded runtime. The wheel-installed package runs with `python -I` from `/opt/commitment`; the repository mount at `/repo` is neither the working directory nor the import path. Neither stage has a writable bind, volume, or tmpfs. Prepare has one read-only repository mount. Render has no mounts. Model output stays data and is never executed.
 
-small host-side supervisor owns locking, pinned snapshot creation, the host-mediated Ollama call, policy, validation, apply, and local commit. it accepts only an HTTP IP-loopback Ollama endpoint, disables redirects, and bounds connection time, response headers, response body, and total request time. it verifies each uniquely named container is removed. phase 0 does not execute repository code, tests, or Git hooks on host.
+### Host supervisor
 
-supervisor is trusted control plane. agent may propose changes. proposal has no publication authority.
+The small host-side supervisor owns locking, pinned snapshot creation, the host-mediated Ollama call, policy, validation, apply, and local commit. It accepts only an HTTP IP-loopback Ollama endpoint, disables redirects, and bounds connection time, response headers, response body, and total request time. It verifies that each uniquely named container is removed. Phase 0 does not execute repository code, tests, or Git hooks on the host.
 
-### repository
+The supervisor is the trusted control plane. The agent may propose changes. The proposal has no publication authority.
 
-repo is durable state. code and prompts define current behavior. Git history records actual behavior. Markdown journal records commitment's narration. roadmap records intended work. tags mark surviving generations.
+### Repository
 
-published history stays append-only. correction uses later commit. journal can later become Material for MkDocs site on GitHub Pages without becoming separate source of truth.
+The repo is durable state. Code and prompts define current behavior. Git history records actual behavior. The Markdown journal records Commitment’s narration. The roadmap records intended work. Tags mark surviving generations.
 
-## phase 0 threat model
+Published history stays append-only. A correction uses a later commit. The journal can later become Material for an MkDocs site on GitHub Pages without becoming a separate source of truth.
 
-container, model output, repository files, repository Git configuration, ambient environment, and ambient Git configuration are untrusted. installed supervisor, host kernel, Git and Podman executables found through controlled system path, and operator account are trusted. repository lock prevents concurrent commitment runs. hostile same-UID local processes are out of scope.
+## Phase 0 threat model
 
-supervisor builds small subprocess environments instead of inheriting ambient `GIT_*` variables. every Git command names exact worktree and Git directory, disables replacement objects, pagers, prompts, external diffs, global and system configuration, and fsmonitor, and forces `core.hooksPath` to a supervisor-owned empty directory. replacement refs and configured clean, smudge, or process filters are rejected before worktree-aware inspection. validated journal bytes are hashed through raw stdin with filters disabled. index changes use cacheinfo or index-info object IDs only. explicit author and committer identity does not depend on Git configuration.
+The container, model output, repository files, repository Git configuration, ambient environment, and ambient Git configuration are untrusted. The installed supervisor, host kernel, Git and Podman executables found through the controlled system path, and operator account are trusted. The repository lock prevents concurrent Commitment runs. Hostile same-UID local processes are out of scope.
 
-phase 0 permits only one new `journal/*.md` path under fixed size budget. it never executes repository content. broader mutation may become available after bootstrap. dependency and container changes need additional validation because they change next runtime.
+The supervisor builds small subprocess environments instead of inheriting ambient `GIT_*` variables. Every Git command names the exact worktree and Git directory, disables replacement objects, pagers, prompts, external diffs, global and system configuration, and fsmonitor, and forces `core.hooksPath` to a supervisor-owned empty directory. Replacement refs and configured clean, smudge, or process filters are rejected before worktree-aware inspection. Validated journal bytes are hashed through raw stdin with filters disabled. Index changes use cacheinfo or index-info object IDs only. Explicit author and committer identity does not depend on Git configuration.
 
-agent never commits, pushes, or handles GitHub credentials. after bootstrap it may propose annotated tags under `agent/*`; supervisor validates and creates them.
+Phase 0 permits only one new `journal/*.md` path under a fixed size budget. It never executes repository content. Broader mutation may become available after bootstrap. Dependency and container changes need additional validation because they change the next runtime.
 
-## phase 0 run lifecycle
+The agent never commits, pushes, or handles GitHub credentials. After bootstrap, it may propose annotated tags under `agent/*`; the supervisor validates and creates them.
 
-1. operator starts supervisor and acquires repository-scoped host lock.
-2. supervisor rejects replacement refs and pins local branch, exact `HEAD`, index bytes, index flags, and worktree status. apply or commit also requires no reported tracked, untracked, or ignored changes.
-3. supervisor extracts bounded regular blobs from pinned commit with replacement objects disabled. temporary snapshot has no `.git`. symlinks, gitlinks, special entries, unsafe paths, excessive entries, and excessive bytes are rejected.
-4. supervisor starts uniquely named prepare container with networking disabled and the pinned snapshot mounted read-only. bounded stdout must be valid Ollama request JSON using the configured local model and fixed generation settings.
-5. supervisor sends that request directly to configured loopback Ollama with no redirect handling and bounded connection, header, body, and total deadlines.
-6. supervisor passes the bounded response to a separate uniquely named render container through stdin. render validates the Ollama envelope and journal mutation, then emits path, content, size, and digest through bounded stdout.
-7. supervisor independently validates exact rendered bytes and rejects unexpected paths, oversized or malformed data, timeout, and failed container cleanup.
-8. dry-run removes snapshot and leaves working tree unchanged.
-9. apply atomically copies validated bytes after rechecking pinned state. optional commit hashes exact validated bytes, builds tree from pinned commit in isolated temporary index, and creates commit with explicit identity. Git edits only journal entry in real index. final operation is one compare-and-swap update of pinned branch ref. successful update adds one normal entry to branch and `HEAD` reflogs.
+## Phase 0 run lifecycle
 
-before successful compare-and-swap, failure cleanup removes only the exact supervisor-owned journal index entry and supervisor journal file. index cleanup exclusively creates Git's canonical `.git/index.lock` before reading the current index, rechecks the owned path, stage, mode, and blob while holding it, preserves unrelated or replacement entries, writes and fsyncs the corrected lock, atomically renames it over the index, and fsyncs `.git`. an existing canonical lock is preserved and cleanup fails safely. exact pinned index bytes and mode are restored when the supervisor's staged entry is the only change. object writes before publication may leave unreachable Git objects.
+1. The operator starts the supervisor and acquires the repository-scoped host lock.
+2. The supervisor rejects replacement refs, resolves the local branch and exact `HEAD`, and records index bytes, index flags, and worktree status. Apply or commit also requires no reported tracked, untracked, or ignored changes.
+3. The supervisor extracts bounded regular blobs from the resolved `HEAD` commit with replacement objects disabled. The temporary snapshot has no `.git`. Symlinks, gitlinks, special entries, unsafe paths, excessive entries, and excessive bytes are rejected.
+4. The supervisor starts a uniquely named prepare container with networking disabled and the pinned snapshot mounted read-only. Bounded stdout must be valid Ollama request JSON using the configured local model and fixed generation settings.
+5. The supervisor sends that request directly to configured loopback Ollama with no redirect handling and bounded connection, header, body, and total deadlines.
+6. The supervisor passes the bounded response to a separate uniquely named render container through stdin. Render validates the Ollama envelope and journal mutation, then emits the path, content, size, and digest through bounded stdout.
+7. The supervisor independently validates the exact rendered bytes and rejects unexpected paths, oversized or malformed data, timeouts, and failed container cleanup.
+8. A dry-run removes the snapshot without invoking apply, index-publication, commit, or ref-update paths. It does not write Git refs, the index, or the working tree. Unrelated concurrent Git activity is not captured or attributed to Commitment.
+9. Apply atomically copies validated bytes after rechecking pinned state. An optional commit hashes exact validated bytes, builds a tree from the pinned commit in an isolated temporary index, and creates a commit with explicit identity. Git edits only the journal entry in the real index. The final operation is one compare-and-swap update of the pinned branch ref. A successful update adds one normal entry to the branch and `HEAD` reflogs.
 
-after successful compare-and-swap, commit is published. supervisor does not move ref back or perform broad rollback. if interrupt loses command confirmation, supervisor reads branch ref and preserves journal and index when new commit is visible. push does not exist.
+Before a successful compare-and-swap, failure cleanup removes only the exact supervisor-owned journal index entry and supervisor journal file. Index cleanup exclusively creates Git's canonical `.git/index.lock` before reading the current index, rechecks the owned path, stage, mode, and blob while holding it, preserves unrelated or replacement entries, writes and fsyncs the corrected lock, atomically renames it over the index, and fsyncs `.git`. An existing canonical lock is preserved, and cleanup fails safely. Exact pinned index bytes and mode are restored when the supervisor's staged entry is the only change. Object writes before publication may leave unreachable Git objects.
 
-host Ollama URL must be an HTTP IP-loopback endpoint. the supervisor makes one direct request and never follows redirects. request size, aggregate response headers, header count, response body, connection time, header time, body time, and total time are bounded.
+After a successful compare-and-swap, the commit is published. The supervisor does not move the ref back or perform broad rollback. If an interrupt loses command confirmation, the supervisor reads the branch ref and preserves the journal and index when the new commit is visible. Push does not exist.
 
-## limits and recovery
+The host Ollama URL must be an HTTP IP-loopback endpoint. The supervisor makes one direct request and never follows redirects. Request size, aggregate response headers, header count, response body, connection time, header time, body time, and total time are bounded.
 
-bare repositories, linked worktrees, detached `HEAD`, executable hooks, and custom `core.hooksPath` behavior are unsupported. hooks and custom hooks path are ignored, not executed. phase 0 also does not run repository tests.
+## Limits and recovery
 
-process crash before compare-and-swap can leave supervisor journal file or journal index entry. unreachable Git objects are also possible. operator must inspect `git status`, current branch, and reflogs before retry. process crash after compare-and-swap may leave valid published commit without success narration. supervisor does not promise filesystem crash consistency. processes that deliberately mutate the index without acquiring Git's canonical index lock are outside the threat model.
+Bare repositories, linked worktrees, detached `HEAD`, executable hooks, and custom `core.hooksPath` behavior are unsupported. Hooks and a custom hooks path are ignored, not executed. Phase 0 also does not run repository tests.
 
-accepted code and docs take effect on later run. running process does not replace itself in place.
+A process crash before compare-and-swap can leave a supervisor journal file or journal index entry. Unreachable Git objects are also possible. The operator must inspect `git status`, the current branch, and reflogs before retrying. A process crash after compare-and-swap may leave a valid published commit without success narration. The supervisor does not promise filesystem crash consistency. Processes that deliberately mutate the index without acquiring Git's canonical index lock are outside the threat model.
 
-## deferred scope
+Accepted code and docs take effect on a later run. A running process does not replace itself in place.
 
-newsletter ingestion, social posting, and GitHub Pages build come later. external text must be treated as untrusted input. credentials for any publisher remain host-side.
+## Deferred scope
+
+Newsletter ingestion, social posting, and a GitHub Pages build come later. External text must be treated as untrusted input. Credentials for any publisher remain host-side.

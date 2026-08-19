@@ -87,7 +87,9 @@ class RealPodmanAcceptance(unittest.TestCase):
             git(repo, "config", "user.name", "acceptance")
             git(repo, "config", "user.email", "acceptance@localhost.invalid")
             (repo / "README.md").write_text("# acceptance\n", encoding="utf-8")
-            (repo / "VOICE.md").write_text("lowercase prose.\n", encoding="utf-8")
+            (repo / "VOICE.md").write_text(
+                "Use normal grammar and capitalization.\n", encoding="utf-8"
+            )
             (repo / "commitment").mkdir()
             malicious = (
                 "import sys\n"
