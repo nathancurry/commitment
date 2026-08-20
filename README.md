@@ -18,7 +18,7 @@ Push, scheduling, issues, blog publication, arbitrary code mutation, and self-mo
 
 ## Quick start
 
-You need Linux, Git, `curl`, Ollama, `uv`, and rootless Podman. Use a normal non-root account. Keep the uv environment outside the target repo because apply mode rejects ignored files too.
+You need Linux, Git, `curl`, Ollama, `uv`, and rootless Podman. Use a normal non-root account. Apply and commit require no staged changes, tracked worktree changes, or non-ignored untracked files. Tracked cleanliness means exact raw-byte and executable-bit equality with the pinned `HEAD` tree; Git attribute normalization is not accepted as equality. Ignored development and build artifacts, including a local `.venv`, are allowed and untouched.
 
 Install Ollama:
 
@@ -40,7 +40,6 @@ ollama list
 From the `commitment` clone:
 
 ```sh
-export UV_PROJECT_ENVIRONMENT=/path/outside/repository/commitment-venv
 uv sync --locked
 podman build -t commitment:latest .
 uv run --locked commitment --repo . --image commitment:latest --model gpt-oss:20b

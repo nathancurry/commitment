@@ -199,6 +199,88 @@ class RealPodmanAcceptance(unittest.TestCase):
                 b"".join(executor.container_stderr),
             )
 
+    def test_real_apply_and_commit_preserves_ignored_artifacts(self) -> None:
+        assert IMAGE is not None
+        with tempfile.TemporaryDirectory(prefix="commitment-real-commit-") as temporary:
+            repo = Path(temporary)
+            git(repo, "init", "-q")
+            git(repo, "config", "user.name", "acceptance")
+            git(repo, "config", "user.email", "acceptance@localhost.invalid")
+            (repo / "README.md").write_text("# acceptance\n", encoding="utf-8")
+            (repo / ".gitignore").write_text(
+                ".venv/\n.ruff_cache/\ndist/\n*.egg-info/\n__pycache__/\n",
+                encoding="utf-8",
+            )
+            git(repo, "add", "README.md", ".gitignore")
+            git(repo, "commit", "-q", "-m", "fixture")
+            git(repo, "config", "core.ignoreCase", "true")
+            git(repo, "config", "core.fileMode", "false")
+            config = repo / ".git" / "config"
+            config_before = config.read_bytes()
+            artifacts = {
+                ".venv/bin/python": b"venv bytes\x00\n",
+                ".ruff_cache/cache": b"ruff bytes\n",
+                "dist/package.whl": b"wheel bytes\x00\n",
+                "commitment.egg-info/PKG-INFO": b"egg bytes\n",
+                "src/__pycache__/module.pyc": b"pyc bytes\x00\n",
+            }
+            for relative, content in artifacts.items():
+                target = repo / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+
+            old_head = git(repo, "rev-parse", "HEAD").strip()
+            mutation = {"path": JOURNAL_PATH, "content": JOURNAL_CONTENT.decode()}
+            body = json.dumps({"response": json.dumps(mutation)}).encode()
+            response = (
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                + str(len(body)).encode()
+                + b"\r\nConnection: close\r\n\r\n"
+                + body
+            )
+            executor = InspectingExecutor()
+            with fake_server(response) as (url, requests):
+                result = Supervisor(repo, executor).run(
+                    apply=True,
+                    commit=True,
+                    image=IMAGE,
+                    ollama_url=url,
+                )
+
+            self.assertTrue(result.committed)
+            self.assertNotEqual(git(repo, "rev-parse", "HEAD").strip(), old_head)
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(
+                git(
+                    repo,
+                    "diff-tree",
+                    "--no-commit-id",
+                    "--name-only",
+                    "-r",
+                    "HEAD",
+                ).splitlines(),
+                [JOURNAL_PATH],
+            )
+            self.assertEqual(
+                git(repo, "status", "--porcelain=v1", "--untracked-files=all"), ""
+            )
+            self.assertEqual(config.read_bytes(), config_before)
+            for relative, content in artifacts.items():
+                self.assertEqual((repo / relative).read_bytes(), content)
+                self.assertEqual(git(repo, "ls-tree", "HEAD", "--", relative), "")
+            print(
+                "REAL_APPLY_COMMIT_EVIDENCE="
+                + json.dumps(
+                    {
+                        "artifact_count": len(artifacts),
+                        "commit_paths": [JOURNAL_PATH],
+                        "ignored_artifacts_unchanged": True,
+                        "journal": result.path,
+                    },
+                    sort_keys=True,
+                )
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

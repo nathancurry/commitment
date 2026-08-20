@@ -67,20 +67,36 @@ def open_parent(
         raise
 
 
-def open_regular(root_fd: int, parts: Iterable[str]) -> int:
+def open_regular_with_parent(
+    root_fd: int, parts: Iterable[str]
+) -> tuple[int, int, str]:
+    """Open a regular file while retaining its parent directory descriptor."""
     parent_fd, name = open_parent(root_fd, parts)
+    descriptor = -1
     try:
         descriptor = os.open(
             name,
             os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
             dir_fd=parent_fd,
         )
-    finally:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", name)
+        return descriptor, parent_fd, name
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
         os.close(parent_fd)
-    metadata = os.fstat(descriptor)
-    if not stat.S_ISREG(metadata.st_mode):
+        raise
+
+
+def open_regular(root_fd: int, parts: Iterable[str]) -> int:
+    descriptor, parent_fd, _ = open_regular_with_parent(root_fd, parts)
+    try:
+        os.close(parent_fd)
+    except BaseException:
         os.close(descriptor)
-        raise OSError(errno.EINVAL, "not a regular file", name)
+        raise
     return descriptor
 
 

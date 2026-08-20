@@ -98,10 +98,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv --version
 ```
 
-From the `commitment` clone, keep the environment outside the target repo. Apply rejects ignored files, including a local `.venv` and build artifacts:
+From the `commitment` clone, a normal local environment is allowed because `.venv` and other ignored development or build artifacts are excluded from apply and commit state and left untouched:
 
 ```sh
-export UV_PROJECT_ENVIRONMENT=/path/outside/repository/commitment-venv
 uv sync --locked
 uv lock --check
 ```
@@ -127,7 +126,7 @@ Check Ollama and the repo first:
 curl --fail --silent --show-error http://127.0.0.1:11434/api/version
 ollama list
 git -C /path/to/repository branch --show-current
-git -C /path/to/repository status --short --untracked-files=all --ignored=matching --no-renames
+git -C /path/to/repository status --short --untracked-files=all --no-renames
 ```
 
 Run:
@@ -151,10 +150,15 @@ Dry-run allows an existing worktree state. Its source snapshot comes from the re
 
 ## Apply
 
-Apply requires a completely clean target. Tracked, untracked, and ignored entries all cause rejection.
+For apply and commit, a clean repository means:
+
+- No staged changes.
+- Every tracked worktree path has exact raw-byte, regular-file-type, existence, and executable-bit equality with the pinned `HEAD` tree. Git attribute normalization does not make differing bytes clean.
+- No non-ignored untracked files.
+- Ignored development and build artifacts are allowed and untouched.
 
 ```sh
-git -C /path/to/repository status --short --untracked-files=all --ignored=matching --no-renames
+git -C /path/to/repository status --short --untracked-files=all --no-renames
 uv run --locked commitment \
   --repo /path/to/repository \
   --image commitment:latest \
@@ -236,7 +240,11 @@ Do not reset the branch or the whole index. Unreachable objects need no immediat
 
 `prompt framing and manifest exceed 10240 UTF-8 bytes`: The repository has too many or unusually long tracked paths for the bounded prompt view. Reduce the tracked-path manifest before retrying.
 
-`apply target has uncommitted, untracked, or ignored changes`: Inspect the full status. Move or finish every entry. Keep the uv environment outside the target repo.
+`apply target has staged, tracked worktree, or non-ignored untracked changes`: Inspect staged changes, tracked worktree changes, and untracked files. Finish, restore, commit, or ignore every reported entry before retrying.
+
+`generated journal path is ignored by Git` or an ignored journal conflict: Adjust the repository ignore rules or resolve the exact `journal` path conflict. Commitment does not write through, replace, or remove ignored entries.
+
+`unsupported filesystem for Phase 0 cleanliness`: Use a Linux filesystem that preserves case-distinct and Unicode-distinct filenames and executable mode bits. Commitment fails before snapshot preparation or mutation when it cannot enforce the cleanliness predicate.
 
 `commitment requires rootless Podman`: Run from a normal non-root account. Verify the Podman rootless state.
 
@@ -256,7 +264,7 @@ repository lock error: Wait for the other Commitment process. Inspect the proces
 - Dry-run prints the path, not proposed content.
 - A later apply run regenerates output. Fixed settings do not make the model deterministic.
 - The host validates structure, path, bytes, size, and digest. The operator still owns the meaning review.
-- Apply and commit require no tracked, untracked, or ignored target changes.
+- Apply and commit require no staged changes, exact raw-byte and executable-bit equality between tracked worktree files and pinned `HEAD`, and no non-ignored untracked files. Ignored artifacts are allowed and untouched.
 - No push, scheduling, issues, blog publication, tags, arbitrary mutation, or self-modification.
 - No bare repo, linked worktree, detached `HEAD`, executable hooks, or custom hooks behavior.
 - Custom hooks are ignored. Repository code and tests do not run during mutation.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import fcntl
 import hashlib
 import io
@@ -8,17 +9,23 @@ import math
 import os
 import selectors
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from collections.abc import Callable, Mapping, Sequence
+from datetime import date
 from pathlib import Path
 from unittest import mock
 
-from commitment.agent import render_response
-from commitment.ollama import build_request, validate_ollama_url
+from commitment.agent import prepare_request, render_response
+from commitment.ollama import validate_ollama_url
 from commitment.result import ExecutionError, JournalResult, PolicyError
+from commitment.safeio import (
+    open_regular_with_parent as safe_open_regular_with_parent,
+    read_regular as safe_read_regular,
+)
 from commitment.supervisor import (
     CommandExecutor,
     CompletedCommand,
@@ -90,6 +97,7 @@ class FakeExecutor(CommandExecutor):
         self.container_commands: list[tuple[str, ...]] = []
         self.cleanup_commands: list[tuple[str, ...]] = []
         self.snapshot_readme: bytes | None = None
+        self.snapshot_paths: tuple[str, ...] = ()
         self.git_commands: list[tuple[tuple[str, ...], Mapping[str, str]]] = []
 
     def run(
@@ -115,10 +123,21 @@ class FakeExecutor(CommandExecutor):
                 )
                 snapshot = Path(source)
                 self.snapshot_readme = (snapshot / "README.md").read_bytes()
+                self.snapshot_paths = tuple(
+                    sorted(
+                        path.relative_to(snapshot).as_posix()
+                        for path in snapshot.rglob("*")
+                        if path.is_file()
+                    )
+                )
                 if self.on_prepare is not None:
                     self.on_prepare(snapshot)
                 model = command[command.index("--model") + 1]
-                return CompletedCommand(0, build_request("bounded prompt", model), b"")
+                return CompletedCommand(
+                    0,
+                    prepare_request(snapshot, model, today=date(2026, 8, 18)),
+                    b"",
+                )
             assert input_data is not None
             report = render_response(input_data)
             if self.bad_render == "digest":
@@ -320,6 +339,35 @@ class SupervisorTests(unittest.TestCase):
         ollama = FakeOllama()
         return Supervisor(self.repo, actual_executor, ollama), actual_executor, ollama
 
+    def add_ignored_artifacts(self) -> dict[str, bytes]:
+        (self.repo / ".gitignore").write_text(
+            ".venv/\n.ruff_cache/\ndist/\n*.egg-info/\n__pycache__/\n",
+            encoding="utf-8",
+        )
+        git(self.repo, "add", ".gitignore")
+        git(self.repo, "commit", "-q", "-m", "ignore development artifacts")
+        artifacts = {
+            ".venv/ignored-venv-secret.bin": b"venv\x00bytes\n",
+            ".ruff_cache/ignored-ruff-secret.bin": b"ruff cache bytes\n",
+            "dist/ignored-dist-secret.whl": b"wheel bytes\x00\n",
+            "commitment.egg-info/ignored-egg-secret.txt": b"egg info bytes\n",
+            "src/commitment/__pycache__/ignored-pycache-secret.pyc": b"pyc\x00bytes\n",
+        }
+        for relative, content in artifacts.items():
+            target = self.repo / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        return artifacts
+
+    def protected_state(self) -> tuple[object, ...]:
+        return (
+            repository_state(self.repo),
+            reflogs(self.repo),
+            git(self.repo, "for-each-ref", "--format=%(refname) %(objectname)"),
+            (self.repo / ".git" / "config").read_bytes(),
+            (self.repo / "README.md").read_bytes(),
+        )
+
     def test_dry_run_changes_nothing_and_uses_pinned_head(self) -> None:
         (self.repo / "README.md").write_text("dirty working bytes\n", encoding="utf-8")
         before = repository_state(self.repo)
@@ -339,7 +387,8 @@ class SupervisorTests(unittest.TestCase):
         self.assertFalse(
             publication_commands.intersection(
                 argument
-                for command, _ in executor.git_commands
+                for command, environment in executor.git_commands
+                if "GIT_INDEX_FILE" not in environment
                 for argument in command
             )
         )
@@ -360,6 +409,39 @@ class SupervisorTests(unittest.TestCase):
         after_logs = reflogs(self.repo)
         self.assertEqual(len(after_logs[0].splitlines()), len(before_logs[0].splitlines()) + 1)
         self.assertEqual(len(after_logs[1].splitlines()), len(before_logs[1].splitlines()) + 1)
+
+    def test_apply_and_commit_allow_and_exclude_ignored_artifacts(self) -> None:
+        artifacts = self.add_ignored_artifacts()
+        before = {path: (self.repo / path).read_bytes() for path in artifacts}
+        supervisor, executor, ollama = self.supervisor()
+        supervisor.run(apply=True, commit=True)
+
+        self.assertEqual(
+            {path: (self.repo / path).read_bytes() for path in artifacts}, before
+        )
+        for path, content in artifacts.items():
+            self.assertNotIn(path, executor.snapshot_paths)
+            self.assertNotIn(path.encode(), ollama.requests[0][0])
+            self.assertNotIn(content, ollama.requests[0][0])
+        tracked = git(self.repo, "ls-files", "-z").split("\0")
+        committed = git(self.repo, "ls-tree", "-r", "--name-only", "HEAD").splitlines()
+        for path in artifacts:
+            self.assertNotIn(path, tracked)
+            self.assertNotIn(path, committed)
+        self.assertEqual(
+            git(
+                self.repo,
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                "HEAD",
+            ).splitlines(),
+            [JOURNAL_PATH],
+        )
+        self.assertEqual(
+            git(self.repo, "status", "--porcelain=v1", "--untracked-files=all"), ""
+        )
 
     def test_commit_requires_apply(self) -> None:
         supervisor, _, _ = self.supervisor()
@@ -391,7 +473,9 @@ class SupervisorTests(unittest.TestCase):
         self.assertIn("--stdin", hash_command)
         self.assertIn("--no-filters", hash_command)
         index_updates = [c for c, _ in executor.git_commands if "update-index" in c]
-        self.assertTrue(all("--cacheinfo" in c or "--index-info" in c for c in index_updates))
+        self.assertTrue(
+            all("--cacheinfo" in c or "--index-info" in c for c in index_updates)
+        )
 
     def test_malicious_attributes_and_filter_config_are_rejected_without_execution(self) -> None:
         marker = self.repo.parent / f"filter-marker-{self.repo.name}"
@@ -420,14 +504,596 @@ class SupervisorTests(unittest.TestCase):
             supervisor.run()
         self.assertEqual(executor.container_commands, [])
 
-    def test_assume_unchanged_metadata_survives(self) -> None:
+    def test_assume_unchanged_does_not_hide_tracked_worktree_change(self) -> None:
         git(self.repo, "update-index", "--assume-unchanged", "README.md")
         before = git(self.repo, "ls-files", "--debug", "README.md")
         (self.repo / "README.md").write_text("hidden unrelated bytes\n", encoding="utf-8")
         supervisor, _, _ = self.supervisor()
-        supervisor.run(apply=True, commit=True)
+        with self.assertRaisesRegex(PolicyError, "tracked worktree"):
+            supervisor.run(apply=True, commit=True)
         self.assertEqual(git(self.repo, "ls-files", "--debug", "README.md"), before)
-        self.assertEqual(git(self.repo, "show", "HEAD:README.md"), "# commitment\n")
+        self.assertFalse((self.repo / JOURNAL_PATH).exists())
+
+    def test_review_reproducer_eol_lf_assume_unchanged_crlf_is_rejected(self) -> None:
+        (self.repo / ".gitattributes").write_text("*.md text eol=lf\n", encoding="utf-8")
+        git(self.repo, "add", ".gitattributes")
+        git(self.repo, "commit", "-q", "-m", "add normalization")
+        git(self.repo, "update-index", "--assume-unchanged", "README.md")
+        (self.repo / "README.md").write_bytes(b"# commitment\r\n")
+
+        self.assertEqual(git(self.repo, "status", "--porcelain=v1"), "")
+        self.assertEqual(
+            subprocess.run(
+                ("git", "diff-files", "--quiet", "--", "README.md"),
+                cwd=self.repo,
+                check=False,
+            ).returncode,
+            0,
+        )
+        supervisor, executor, _ = self.supervisor()
+        with self.assertRaisesRegex(PolicyError, "tracked worktree"):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(executor.container_commands, [])
+        self.assertEqual((self.repo / "README.md").read_bytes(), b"# commitment\r\n")
+
+    def test_eol_lf_crlf_raw_mismatch_without_assume_unchanged_is_rejected(self) -> None:
+        (self.repo / ".gitattributes").write_text("*.md text eol=lf\n", encoding="utf-8")
+        git(self.repo, "add", ".gitattributes")
+        git(self.repo, "commit", "-q", "-m", "add normalization")
+        (self.repo / "README.md").write_bytes(b"# commitment\r\n")
+
+        supervisor, executor, _ = self.supervisor()
+        with self.assertRaisesRegex(PolicyError, "tracked worktree"):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(executor.container_commands, [])
+
+    def test_working_tree_encoding_raw_transformation_is_rejected(self) -> None:
+        (self.repo / ".gitattributes").write_text(
+            "*.txt text working-tree-encoding=UTF-16LE\n", encoding="utf-8"
+        )
+        encoded = self.repo / "encoded.txt"
+        encoded.write_bytes("encoded\n".encode("utf-16-le"))
+        git(self.repo, "add", ".gitattributes", "encoded.txt")
+        git(self.repo, "commit", "-q", "-m", "add encoded file")
+        self.assertEqual(encoded.read_bytes(), "encoded\n".encode("utf-16-le"))
+        self.assertEqual(git(self.repo, "show", "HEAD:encoded.txt"), "encoded\n")
+        self.assertEqual(git(self.repo, "status", "--porcelain=v1"), "")
+
+        supervisor, executor, _ = self.supervisor()
+        with self.assertRaisesRegex(PolicyError, "tracked worktree"):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(executor.container_commands, [])
+
+    def test_ident_raw_transformation_is_rejected(self) -> None:
+        (self.repo / ".gitattributes").write_text("*.txt ident\n", encoding="utf-8")
+        identified = self.repo / "identified.txt"
+        identified.write_bytes(b"$Id$\n")
+        git(self.repo, "add", ".gitattributes", "identified.txt")
+        git(self.repo, "commit", "-q", "-m", "add identified file")
+        identified.unlink()
+        git(self.repo, "checkout-index", "--force", "--", "identified.txt")
+        self.assertNotEqual(identified.read_bytes(), b"$Id$\n")
+        self.assertEqual(git(self.repo, "show", "HEAD:identified.txt"), "$Id$\n")
+
+        supervisor, executor, _ = self.supervisor()
+        with self.assertRaisesRegex(PolicyError, "tracked worktree"):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(executor.container_commands, [])
+
+    def test_clean_raw_bytes_with_normalization_attributes_are_accepted(self) -> None:
+        (self.repo / ".gitattributes").write_text("*.md text eol=lf\n", encoding="utf-8")
+        git(self.repo, "add", ".gitattributes")
+        git(self.repo, "commit", "-q", "-m", "add normalization")
+        self.assertEqual(
+            (self.repo / "README.md").read_bytes(),
+            git(self.repo, "show", "HEAD:README.md").encode(),
+        )
+
+        supervisor, _, _ = self.supervisor()
+        result = supervisor.run(apply=True)
+        self.assertTrue(result.applied)
+
+    def test_tracked_path_type_replacements_are_rejected(self) -> None:
+        target = self.repo / "README.md"
+        for kind in ("deleted", "symlink", "directory", "fifo"):
+            with self.subTest(kind=kind):
+                target.unlink()
+                if kind == "symlink":
+                    target.symlink_to("missing-target")
+                elif kind == "directory":
+                    target.mkdir()
+                elif kind == "fifo":
+                    os.mkfifo(target)
+                supervisor, executor, _ = self.supervisor()
+                with self.assertRaisesRegex(PolicyError, "tracked worktree"):
+                    supervisor.run(apply=True, commit=True)
+                self.assertEqual(executor.container_commands, [])
+                if target.is_dir() and not target.is_symlink():
+                    target.rmdir()
+                else:
+                    target.unlink(missing_ok=True)
+                git(self.repo, "checkout", "-q", "--", "README.md")
+
+    def test_staged_only_change_is_rejected(self) -> None:
+        committed = (self.repo / "README.md").read_bytes()
+        (self.repo / "README.md").write_bytes(b"staged only\n")
+        git(self.repo, "add", "README.md")
+        (self.repo / "README.md").write_bytes(committed)
+        self.assertNotEqual(git(self.repo, "diff", "--cached", "--", "README.md"), "")
+        self.assertEqual((self.repo / "README.md").read_bytes(), committed)
+
+        supervisor, executor, _ = self.supervisor()
+        with self.assertRaisesRegex(PolicyError, "staged"):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(executor.container_commands, [])
+
+    def test_skip_worktree_does_not_hide_tracked_worktree_change(self) -> None:
+        git(self.repo, "update-index", "--skip-worktree", "README.md")
+        before = git(self.repo, "ls-files", "--debug", "README.md")
+        (self.repo / "README.md").write_text("hidden unrelated bytes\n", encoding="utf-8")
+        supervisor, _, _ = self.supervisor()
+        with self.assertRaisesRegex(PolicyError, "tracked worktree"):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(git(self.repo, "ls-files", "--debug", "README.md"), before)
+        self.assertFalse((self.repo / JOURNAL_PATH).exists())
+
+    def test_hostile_ignorecase_config_cannot_hide_case_variant_untracked(self) -> None:
+        git(self.repo, "config", "core.ignoreCase", "true")
+        config = self.repo / ".git" / "config"
+        before = config.read_bytes()
+        (self.repo / "readme.md").write_text("case variant\n", encoding="utf-8")
+        supervisor, executor, _ = self.supervisor()
+        with self.assertRaisesRegex(PolicyError, "non-ignored untracked"):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(config.read_bytes(), before)
+        self.assertEqual(executor.container_commands, [])
+
+    def test_hostile_filemode_config_cannot_hide_executable_change(self) -> None:
+        git(self.repo, "config", "core.fileMode", "false")
+        config = self.repo / ".git" / "config"
+        before = config.read_bytes()
+        (self.repo / "README.md").chmod(0o755)
+        supervisor, executor, _ = self.supervisor()
+        with self.assertRaisesRegex(PolicyError, "tracked worktree"):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(config.read_bytes(), before)
+        self.assertEqual(executor.container_commands, [])
+
+    def test_hostile_ignorecase_and_filemode_config_are_both_overridden(self) -> None:
+        git(self.repo, "config", "core.ignoreCase", "true")
+        git(self.repo, "config", "core.fileMode", "false")
+        (self.repo / "README.md").chmod(0o755)
+        (self.repo / "readme.md").write_text("case variant\n", encoding="utf-8")
+        supervisor, executor, _ = self.supervisor()
+        with self.assertRaisesRegex(
+            PolicyError, "staged, tracked worktree, or non-ignored untracked"
+        ):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(executor.container_commands, [])
+
+    def test_hostile_autocrlf_cannot_combine_with_hidden_index_metadata(self) -> None:
+        git(self.repo, "config", "core.autocrlf", "true")
+        git(self.repo, "update-index", "--assume-unchanged", "README.md")
+        (self.repo / "README.md").write_bytes(b"# commitment\r\n")
+        supervisor, executor, _ = self.supervisor()
+        with self.assertRaisesRegex(PolicyError, "tracked worktree"):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(executor.container_commands, [])
+
+    def test_cleanliness_overrides_precede_subcommands_and_ambient_config(self) -> None:
+        hostile = {
+            "GIT_CONFIG_COUNT": "3",
+            "GIT_CONFIG_KEY_0": "core.ignoreCase",
+            "GIT_CONFIG_VALUE_0": "true",
+            "GIT_CONFIG_KEY_1": "core.fileMode",
+            "GIT_CONFIG_VALUE_1": "false",
+            "GIT_CONFIG_KEY_2": "core.precomposeUnicode",
+            "GIT_CONFIG_VALUE_2": "true",
+        }
+        supervisor, executor, _ = self.supervisor()
+        with mock.patch.dict(os.environ, hostile):
+            supervisor.run(apply=True, commit=True)
+
+        cleanliness_commands = []
+        for command, environment in executor.git_commands:
+            operation = next(
+                (
+                    item
+                    for item in (
+                        "status",
+                        "diff-index",
+                        "check-ignore",
+                        "ls-files",
+                    )
+                    if item in command
+                ),
+                None,
+            )
+            if operation is None:
+                continue
+            cleanliness_commands.append(command)
+            operation_index = command.index(operation)
+            for setting in (
+                "core.ignoreCase=false",
+                "core.fileMode=true",
+                "core.precomposeUnicode=false",
+                "core.ignoreStat=false",
+                "core.trustCtime=true",
+                "core.checkStat=default",
+                "core.autocrlf=false",
+                "core.eol=lf",
+            ):
+                self.assertLess(command.index(setting), operation_index)
+            self.assertNotIn("GIT_CONFIG_COUNT", environment)
+        self.assertTrue(cleanliness_commands)
+        status = next(command for command in cleanliness_commands if "status" in command)
+        self.assertIn("--untracked-files=all", status)
+
+    def test_clean_apply_preserves_repository_config_bytes(self) -> None:
+        git(self.repo, "config", "core.ignoreCase", "true")
+        git(self.repo, "config", "core.fileMode", "false")
+        config = self.repo / ".git" / "config"
+        before = config.read_bytes()
+        supervisor, _, _ = self.supervisor()
+        supervisor.run(apply=True, commit=True)
+        self.assertEqual(config.read_bytes(), before)
+
+    def test_unsupported_executable_semantics_fail_closed(self) -> None:
+        real_fchmod = os.fchmod
+
+        def suppress_executable_bit(descriptor: int, mode: int) -> None:
+            if mode != 0o700:
+                real_fchmod(descriptor, mode)
+
+        supervisor, executor, _ = self.supervisor()
+        with (
+            mock.patch(
+                "commitment.supervisor.os.fchmod",
+                side_effect=suppress_executable_bit,
+            ),
+            self.assertRaisesRegex(
+                PolicyError,
+                "unsupported filesystem.*executable-bit tracking required",
+            ),
+        ):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(executor.container_commands, [])
+
+    def test_raw_comparison_io_failure_preserves_repository_state(self) -> None:
+        before = self.protected_state()
+
+        def fail_readme(
+            root_fd: int, parts: Sequence[str]
+        ) -> tuple[int, int, str]:
+            values = tuple(parts)
+            if values == ("README.md",):
+                raise OSError(errno.EACCES, "forced raw comparison failure")
+            return safe_open_regular_with_parent(root_fd, values)
+
+        supervisor, executor, _ = self.supervisor()
+        with (
+            mock.patch(
+                "commitment.supervisor.open_regular_with_parent",
+                side_effect=fail_readme,
+            ),
+            self.assertRaisesRegex(
+                PolicyError, "cannot compare tracked worktree file safely"
+            ),
+        ):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(self.protected_state(), before)
+        self.assertFalse((self.repo / JOURNAL_PATH).exists())
+        self.assertEqual(executor.container_commands, [])
+
+    def test_raw_path_replacement_immediately_after_open_is_rejected(self) -> None:
+        artifacts = self.add_ignored_artifacts()
+        target = self.repo / "README.md"
+        backup = self.repo / "README.raced"
+        index = self.repo / ".git" / "index"
+        config = self.repo / ".git" / "config"
+        raced_worktree: tuple[tuple[str, str, bytes], ...] | None = None
+
+        def worktree_state() -> tuple[tuple[str, str, bytes], ...]:
+            result: list[tuple[str, str, bytes]] = []
+            for root, directories, files in os.walk(self.repo, followlinks=False):
+                if Path(root) == self.repo and ".git" in directories:
+                    directories.remove(".git")
+                for name in sorted((*directories, *files)):
+                    path = Path(root) / name
+                    relative = path.relative_to(self.repo).as_posix()
+                    metadata = path.lstat()
+                    if stat.S_ISREG(metadata.st_mode):
+                        result.append((relative, "file", path.read_bytes()))
+                    elif stat.S_ISLNK(metadata.st_mode):
+                        result.append((relative, "symlink", os.readlink(path).encode()))
+                    elif stat.S_ISDIR(metadata.st_mode):
+                        result.append((relative, "directory", b""))
+                    else:
+                        result.append((relative, "special", b""))
+            return tuple(sorted(result))
+
+        before = (
+            git(self.repo, "rev-parse", "HEAD").strip(),
+            index.read_bytes(),
+            index.stat().st_mode & 0o777,
+            reflogs(self.repo),
+            git(self.repo, "for-each-ref", "--format=%(refname) %(objectname)"),
+            config.read_bytes(),
+            {path: (self.repo / path).read_bytes() for path in artifacts},
+        )
+        raced = False
+
+        def replace_after_open(
+            root_fd: int, parts: Sequence[str]
+        ) -> tuple[int, int, str]:
+            nonlocal raced, raced_worktree
+            opened = safe_open_regular_with_parent(root_fd, parts)
+            if tuple(parts) == ("README.md",) and not raced:
+                target.rename(backup)
+                target.write_bytes(b"dirty replacement\n")
+                raced = True
+                raced_worktree = worktree_state()
+            return opened
+
+        supervisor, executor, _ = self.supervisor()
+        with (
+            mock.patch(
+                "commitment.supervisor.open_regular_with_parent",
+                side_effect=replace_after_open,
+            ),
+            self.assertRaisesRegex(PolicyError, "pathname changed"),
+        ):
+            supervisor.run(apply=True, commit=True)
+
+        self.assertTrue(raced)
+        self.assertEqual(target.read_bytes(), b"dirty replacement\n")
+        self.assertEqual(backup.read_bytes(), b"# commitment\n")
+        self.assertEqual(worktree_state(), raced_worktree)
+        self.assertFalse((self.repo / JOURNAL_PATH).exists())
+        self.assertEqual(executor.container_commands, [])
+        self.assertEqual(
+            (
+                git(self.repo, "rev-parse", "HEAD").strip(),
+                index.read_bytes(),
+                index.stat().st_mode & 0o777,
+                reflogs(self.repo),
+                git(self.repo, "for-each-ref", "--format=%(refname) %(objectname)"),
+                config.read_bytes(),
+                {path: (self.repo / path).read_bytes() for path in artifacts},
+            ),
+            before,
+        )
+
+    def test_raw_path_replacement_before_post_read_stat_is_rejected(self) -> None:
+        target = self.repo / "README.md"
+        backup = self.repo / "README.raced"
+        real_stat = os.stat
+        raced = False
+
+        def replace_before_stat(
+            path: object, *args: object, **kwargs: object
+        ) -> os.stat_result:
+            nonlocal raced
+            if (
+                path == "README.md"
+                and kwargs.get("dir_fd") is not None
+                and kwargs.get("follow_symlinks") is False
+                and not raced
+            ):
+                target.rename(backup)
+                target.write_bytes(b"dirty replacement\n")
+                raced = True
+            return real_stat(path, *args, **kwargs)
+
+        supervisor, executor, _ = self.supervisor()
+        with (
+            mock.patch("commitment.supervisor.os.stat", side_effect=replace_before_stat),
+            self.assertRaisesRegex(PolicyError, "pathname changed"),
+        ):
+            supervisor.run(apply=True, commit=True)
+        self.assertTrue(raced)
+        self.assertEqual(executor.container_commands, [])
+
+    def test_raw_path_replacement_with_symlink_is_rejected(self) -> None:
+        target = self.repo / "README.md"
+        backup = self.repo / "README.raced"
+        raced = False
+
+        def symlink_after_open(
+            root_fd: int, parts: Sequence[str]
+        ) -> tuple[int, int, str]:
+            nonlocal raced
+            opened = safe_open_regular_with_parent(root_fd, parts)
+            if tuple(parts) == ("README.md",) and not raced:
+                target.rename(backup)
+                target.symlink_to(backup.name)
+                raced = True
+            return opened
+
+        supervisor, executor, _ = self.supervisor()
+        with (
+            mock.patch(
+                "commitment.supervisor.open_regular_with_parent",
+                side_effect=symlink_after_open,
+            ),
+            self.assertRaisesRegex(PolicyError, "pathname changed"),
+        ):
+            supervisor.run(apply=True, commit=True)
+        self.assertTrue(target.is_symlink())
+        self.assertEqual(executor.container_commands, [])
+
+    def test_raw_path_deletion_after_open_is_rejected(self) -> None:
+        target = self.repo / "README.md"
+        backup = self.repo / "README.raced"
+        raced = False
+
+        def delete_after_open(
+            root_fd: int, parts: Sequence[str]
+        ) -> tuple[int, int, str]:
+            nonlocal raced
+            opened = safe_open_regular_with_parent(root_fd, parts)
+            if tuple(parts) == ("README.md",) and not raced:
+                target.rename(backup)
+                raced = True
+            return opened
+
+        supervisor, executor, _ = self.supervisor()
+        with (
+            mock.patch(
+                "commitment.supervisor.open_regular_with_parent",
+                side_effect=delete_after_open,
+            ),
+            self.assertRaisesRegex(PolicyError, "cannot compare"),
+        ):
+            supervisor.run(apply=True, commit=True)
+        self.assertFalse(target.exists())
+        self.assertEqual(executor.container_commands, [])
+
+    def test_raw_path_directory_replacement_after_open_is_rejected(self) -> None:
+        target = self.repo / "README.md"
+        backup = self.repo / "README.raced"
+        raced = False
+
+        def directory_after_open(
+            root_fd: int, parts: Sequence[str]
+        ) -> tuple[int, int, str]:
+            nonlocal raced
+            opened = safe_open_regular_with_parent(root_fd, parts)
+            if tuple(parts) == ("README.md",) and not raced:
+                target.rename(backup)
+                target.mkdir()
+                raced = True
+            return opened
+
+        supervisor, executor, _ = self.supervisor()
+        with (
+            mock.patch(
+                "commitment.supervisor.open_regular_with_parent",
+                side_effect=directory_after_open,
+            ),
+            self.assertRaisesRegex(PolicyError, "pathname changed"),
+        ):
+            supervisor.run(apply=True, commit=True)
+        self.assertTrue(target.is_dir())
+        self.assertEqual(executor.container_commands, [])
+
+    def test_raw_in_place_write_during_read_is_rejected(self) -> None:
+        target = self.repo / "README.md"
+        raced = False
+
+        def write_during_read(
+            descriptor: int, *, expected_size: int, max_bytes: int
+        ) -> bytes:
+            nonlocal raced
+            content = safe_read_regular(
+                descriptor, expected_size=expected_size, max_bytes=max_bytes
+            )
+            if (
+                os.readlink(f"/proc/self/fd/{descriptor}").endswith("/README.md")
+                and not raced
+            ):
+                target.write_bytes(b"x" * len(content))
+                raced = True
+            return content
+
+        supervisor, executor, _ = self.supervisor()
+        with (
+            mock.patch(
+                "commitment.supervisor.read_regular", side_effect=write_during_read
+            ),
+            self.assertRaisesRegex(PolicyError, "file changed"),
+        ):
+            supervisor.run(apply=True, commit=True)
+        self.assertTrue(raced)
+        self.assertEqual(executor.container_commands, [])
+
+    def test_raw_path_identity_accepts_unchanged_file(self) -> None:
+        supervisor, _, _ = self.supervisor()
+        result = supervisor.run(apply=True)
+        self.assertTrue(result.applied)
+
+    def test_raw_path_identity_accepts_same_inode_hard_link_alias(self) -> None:
+        (self.repo / ".gitignore").write_text("README.alias\n", encoding="utf-8")
+        git(self.repo, "add", ".gitignore")
+        git(self.repo, "commit", "-q", "-m", "ignore hard-link alias")
+        target = self.repo / "README.md"
+        alias = self.repo / "README.alias"
+        os.link(target, alias)
+        raced = False
+
+        def alias_after_open(
+            root_fd: int, parts: Sequence[str]
+        ) -> tuple[int, int, str]:
+            nonlocal raced
+            opened = safe_open_regular_with_parent(root_fd, parts)
+            if tuple(parts) == ("README.md",) and not raced:
+                target.unlink()
+                os.link(alias, target)
+                raced = True
+            return opened
+
+        supervisor, _, _ = self.supervisor()
+        with mock.patch(
+            "commitment.supervisor.open_regular_with_parent",
+            side_effect=alias_after_open,
+        ):
+            result = supervisor.run(apply=True)
+        self.assertTrue(result.applied)
+        self.assertTrue(target.samefile(alias))
+
+    def test_all_four_raw_revalidations_use_path_identity_primitive(self) -> None:
+        readme_opens = 0
+
+        def count_open(
+            root_fd: int, parts: Sequence[str]
+        ) -> tuple[int, int, str]:
+            nonlocal readme_opens
+            if tuple(parts) == ("README.md",):
+                readme_opens += 1
+            return safe_open_regular_with_parent(root_fd, parts)
+
+        supervisor, _, _ = self.supervisor()
+        with mock.patch(
+            "commitment.supervisor.open_regular_with_parent", side_effect=count_open
+        ):
+            supervisor.run(apply=True, commit=True)
+
+        # One initial pin read plus post-pin, pre-apply, post-apply, and pre-CAS reads.
+        self.assertEqual(readme_opens, 5)
+
+    def test_raw_comparison_limits_fail_closed_without_mutation(self) -> None:
+        original = (self.repo / "README.md").read_bytes()
+        cases = (
+            ("file count", "MAX_TRACKED_ENTRIES", 0, original, "tracked entries"),
+            (
+                "individual bytes",
+                "MAX_INSPECTED_FILE_BYTES",
+                len(original),
+                original + b"x",
+                "tracked worktree file exceeds",
+            ),
+            (
+                "aggregate bytes",
+                "MAX_INSPECTED_TOTAL_BYTES",
+                len(original),
+                original + b"x",
+                "tracked worktree exceeds",
+            ),
+        )
+        for label, constant, limit, worktree, message in cases:
+            with self.subTest(limit=label):
+                (self.repo / "README.md").write_bytes(worktree)
+                before = self.protected_state()
+                supervisor, executor, _ = self.supervisor()
+                with (
+                    mock.patch(f"commitment.supervisor.{constant}", limit),
+                    self.assertRaisesRegex(PolicyError, message),
+                ):
+                    supervisor.run(apply=True, commit=True)
+                self.assertEqual(self.protected_state(), before)
+                self.assertFalse((self.repo / JOURNAL_PATH).exists())
+                self.assertEqual(executor.container_commands, [])
+                (self.repo / "README.md").write_bytes(original)
 
     def test_invalid_rendered_results_are_rejected(self) -> None:
         for failure, message in (("digest", "does not match"), ("path", "unexpected changed path")):
@@ -436,13 +1102,90 @@ class SupervisorTests(unittest.TestCase):
                 with self.assertRaisesRegex(PolicyError, message):
                     supervisor.run()
 
-    def test_dirty_apply_rejected_but_dry_run_allowed(self) -> None:
+    def test_non_ignored_untracked_apply_rejected_but_dry_run_allowed(self) -> None:
         (self.repo / "dirty.txt").write_text("dirty\n", encoding="utf-8")
         supervisor, _, _ = self.supervisor()
         supervisor.run()
         supervisor, _, _ = self.supervisor()
-        with self.assertRaisesRegex(PolicyError, "uncommitted, untracked, or ignored changes"):
+        with self.assertRaisesRegex(PolicyError, "non-ignored untracked"):
             supervisor.run(apply=True)
+
+    def test_staged_and_tracked_worktree_changes_are_rejected(self) -> None:
+        for state in ("staged", "modified", "deleted"):
+            with self.subTest(state=state):
+                if state == "deleted":
+                    (self.repo / "README.md").unlink()
+                else:
+                    (self.repo / "README.md").write_text(
+                        f"{state}\n", encoding="utf-8"
+                    )
+                    if state == "staged":
+                        git(self.repo, "add", "README.md")
+                supervisor, executor, ollama = self.supervisor()
+                with self.assertRaisesRegex(
+                    PolicyError, "staged, tracked worktree"
+                ):
+                    supervisor.run(apply=True)
+                self.assertEqual(executor.container_commands, [])
+                self.assertEqual(ollama.requests, [])
+                git(self.repo, "reset", "--hard", "-q", "HEAD")
+
+    def test_unstaged_rename_is_rejected(self) -> None:
+        (self.repo / "README.md").rename(self.repo / "RENAMED.md")
+        supervisor, executor, _ = self.supervisor()
+        with self.assertRaisesRegex(PolicyError, "tracked worktree"):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(executor.container_commands, [])
+
+    def test_ignored_generated_journal_path_is_rejected(self) -> None:
+        (self.repo / ".gitignore").write_text("journal/*.md\n", encoding="utf-8")
+        git(self.repo, "add", ".gitignore")
+        git(self.repo, "commit", "-q", "-m", "ignore journals")
+        supervisor, _, _ = self.supervisor()
+        with self.assertRaisesRegex(PolicyError, "generated journal path is ignored"):
+            supervisor.run(apply=True)
+        self.assertFalse((self.repo / JOURNAL_PATH).exists())
+
+    def test_ignored_journal_parent_symlink_or_special_file_is_rejected(self) -> None:
+        (self.repo / ".gitignore").write_text("/journal\n", encoding="utf-8")
+        git(self.repo, "add", ".gitignore")
+        git(self.repo, "commit", "-q", "-m", "ignore journal parent")
+        for kind in ("symlink", "special file"):
+            with self.subTest(kind=kind):
+                target = self.repo / "journal"
+                try:
+                    if kind == "symlink":
+                        target.symlink_to(self.repo / "outside")
+                    else:
+                        os.mkfifo(target)
+                    supervisor, _, _ = self.supervisor()
+                    with self.assertRaisesRegex(
+                        PolicyError,
+                        f"required journal parent conflicts with ignored {kind}",
+                    ):
+                        supervisor.run(apply=True)
+                    metadata = target.lstat()
+                    self.assertEqual(
+                        stat.S_ISLNK(metadata.st_mode), kind == "symlink"
+                    )
+                    self.assertEqual(
+                        stat.S_ISFIFO(metadata.st_mode), kind == "special file"
+                    )
+                finally:
+                    target.unlink(missing_ok=True)
+
+    def test_rollback_leaves_ignored_artifacts_untouched(self) -> None:
+        artifacts = self.add_ignored_artifacts()
+        before = {path: (self.repo / path).read_bytes() for path in artifacts}
+        old_head = git(self.repo, "rev-parse", "HEAD").strip()
+        supervisor, _, _ = self.supervisor(FakeExecutor(fail_git="journal-ref"))
+        with self.assertRaises(ExecutionError):
+            supervisor.run(apply=True, commit=True)
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD").strip(), old_head)
+        self.assertEqual(
+            {path: (self.repo / path).read_bytes() for path in artifacts}, before
+        )
+        self.assertFalse((self.repo / JOURNAL_PATH).exists())
 
     def test_concurrent_head_and_index_movement_rejected(self) -> None:
         def move_head(snapshot: Path) -> None:

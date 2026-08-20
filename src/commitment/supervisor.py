@@ -48,6 +48,7 @@ from commitment.safeio import (
     open_directory,
     open_parent,
     open_regular,
+    open_regular_with_parent,
     read_regular,
 )
 
@@ -67,6 +68,16 @@ COMMIT_AUTHOR_EMAIL = "commitment@localhost.invalid"
 _TREE_LINE = re.compile(
     r"(?P<mode>[0-9]{6}) +(?P<kind>[^ ]+) +(?P<oid>[0-9a-f]{40,64}) +(?P<size>[0-9-]+)\t(?P<path>.*)",
     re.DOTALL,
+)
+_CLEANLINESS_GIT_CONFIG = (
+    "core.ignoreCase=false",
+    "core.fileMode=true",
+    "core.precomposeUnicode=false",
+    "core.ignoreStat=false",
+    "core.trustCtime=true",
+    "core.checkStat=default",
+    "core.autocrlf=false",
+    "core.eol=lf",
 )
 
 
@@ -390,8 +401,36 @@ class GitContext:
             max_stdout=max_stdout,
         )
 
+    def cleanliness_execute(
+        self,
+        arguments: Sequence[str],
+        *,
+        timeout: float = 30,
+        index: Path | None = None,
+        input_data: bytes | None = None,
+        max_stdout: int = MAX_PROCESS_OUTPUT,
+    ) -> CompletedCommand:
+        config = tuple(
+            item
+            for setting in _CLEANLINESS_GIT_CONFIG
+            for item in ("-c", setting)
+        )
+        command = (*self.git_prefix, *config, *arguments)
+        return self.executor.run(
+            command,
+            cwd=self.repo_path,
+            timeout=timeout,
+            env=_sanitized_git_environment(index=index),
+            input_data=input_data,
+            max_stdout=max_stdout,
+        )
+
     def git(self, arguments: Sequence[str], **kwargs: object) -> bytes:
         result = self.execute(arguments, **kwargs)
+        return require_success(result, (*self.git_prefix, *arguments))
+
+    def cleanliness_git(self, arguments: Sequence[str], **kwargs: object) -> bytes:
+        result = self.cleanliness_execute(arguments, **kwargs)
         return require_success(result, (*self.git_prefix, *arguments))
 
 
@@ -405,10 +444,10 @@ class IndexRecord:
 def _index_records(
     context: GitContext, *, index: Path | None = None
 ) -> tuple[IndexRecord, ...]:
-    stage_raw = context.git(
+    stage_raw = context.cleanliness_git(
         ("ls-files", "--stage", "-z"), index=index, max_stdout=MAX_INDEX_BYTES
     )
-    flag_raw = context.git(
+    flag_raw = context.cleanliness_git(
         ("ls-files", "-v", "-z"), index=index, max_stdout=MAX_INDEX_BYTES
     )
     stages: dict[bytes, bytes] = {}
@@ -469,16 +508,51 @@ def _branch(context: GitContext) -> str:
 
 
 def _status(context: GitContext) -> bytes:
-    return context.git(
+    raw = context.cleanliness_git(
         (
             "status",
             "--porcelain=v1",
             "-z",
             "--untracked-files=all",
-            "--ignored=matching",
+            "--ignore-submodules=none",
             "--no-renames",
         )
     )
+    safe: list[bytes] = []
+    for item in raw.split(b"\0"):
+        if not item:
+            continue
+        if len(item) < 4 or item[2:3] != b" ":
+            raise PolicyError("Git returned malformed worktree status")
+        if item[:2] == b"??" or item[:1] != b" ":
+            safe.append(item)
+    return b"\0".join(safe) + (b"\0" if safe else b"")
+
+
+def _staged_index_is_clean(context: GitContext, head: str) -> bool:
+    result = context.cleanliness_execute(
+        (
+            "diff-index",
+            "--cached",
+            "--quiet",
+            "--no-ext-diff",
+            "--ignore-submodules=none",
+            head,
+            "--",
+        ),
+    )
+    if result.returncode not in {0, 1}:
+        require_success(result, (*context.git_prefix, "diff-index"))
+    return result.returncode == 0
+
+
+def _is_ignored(context: GitContext, path: str) -> bool:
+    result = context.cleanliness_execute(
+        ("check-ignore", "--quiet", "--no-index", "--", path)
+    )
+    if result.returncode not in {0, 1}:
+        require_success(result, (*context.git_prefix, "check-ignore"))
+    return result.returncode == 0
 
 
 def reject_configured_filters(context: GitContext) -> None:
@@ -501,39 +575,118 @@ def reject_configured_filters(context: GitContext) -> None:
         )
 
 
-@dataclass(frozen=True)
-class PinnedState:
-    head: str
-    branch: str
-    index: bytes
-    index_mode: int
-    index_records: tuple[IndexRecord, ...]
-    status: bytes
+def _require_cleanliness_filesystem(context: GitContext) -> None:
+    if not sys.platform.startswith("linux"):
+        raise PolicyError("unsupported filesystem for Phase 0 cleanliness: Linux required")
+    if os.fstat(context.repo_fd).st_dev != os.fstat(context.git_fd).st_dev:
+        raise PolicyError(
+            "unsupported filesystem for Phase 0 cleanliness: "
+            "worktree and Git directory must share one filesystem"
+        )
+    directory = f"commitment-fsprobe-{uuid.uuid4().hex}"
+    directory_fd = -1
+    directory_created = False
+    created: list[str] = []
 
+    def create(name: str, mode: int = 0o600) -> os.stat_result:
+        descriptor = os.open(
+            name,
+            os.O_RDWR
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            mode,
+            dir_fd=directory_fd,
+        )
+        created.append(name)
+        try:
+            return os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
 
-def pin_state(context: GitContext) -> PinnedState:
-    reject_configured_filters(context)
-    replacements = context.git(("for-each-ref", "--format=%(refname)", "refs/replace/"))
-    if replacements:
-        raise PolicyError("Git replacement refs are unsupported")
-    index, index_mode = _read_index(context)
-    return PinnedState(
-        _head(context),
-        _branch(context),
-        index,
-        index_mode,
-        _index_records(context),
-        _status(context),
-    )
+    try:
+        os.mkdir(directory, 0o700, dir_fd=context.git_fd)
+        directory_created = True
+        directory_fd = open_child_directory(context.git_fd, directory)
+        lower = create("case")
+        try:
+            upper = create("CASE")
+        except FileExistsError as exc:
+            raise PolicyError(
+                "unsupported filesystem for Phase 0 cleanliness: "
+                "case-sensitive filenames required"
+            ) from exc
+        if (lower.st_dev, lower.st_ino) == (upper.st_dev, upper.st_ino):
+            raise PolicyError(
+                "unsupported filesystem for Phase 0 cleanliness: "
+                "case-sensitive filenames required"
+            )
 
+        mode_name = "executable-mode"
+        create(mode_name)
+        mode_fd = os.open(
+            mode_name,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=directory_fd,
+        )
+        try:
+            os.fchmod(mode_fd, 0o700)
+            if stat.S_IMODE(os.fstat(mode_fd).st_mode) & 0o111 != 0o100:
+                raise PolicyError(
+                    "unsupported filesystem for Phase 0 cleanliness: "
+                    "executable-bit tracking required"
+                )
+        finally:
+            os.close(mode_fd)
 
-def verify_state(context: GitContext, pinned: PinnedState) -> None:
-    if _branch(context) != pinned.branch or _head(context) != pinned.head:
-        raise PolicyError("repository HEAD moved during supervisor run")
-    if _read_index(context) != (pinned.index, pinned.index_mode):
-        raise PolicyError("repository index moved during supervisor run")
-    if _status(context) != pinned.status:
-        raise PolicyError("repository state moved during supervisor run")
+        decomposed = create("e\N{COMBINING ACUTE ACCENT}")
+        try:
+            composed = create("\N{LATIN SMALL LETTER E WITH ACUTE}")
+        except FileExistsError as exc:
+            raise PolicyError(
+                "unsupported filesystem for Phase 0 cleanliness: "
+                "Unicode filename preservation required"
+            ) from exc
+        if (decomposed.st_dev, decomposed.st_ino) == (
+            composed.st_dev,
+            composed.st_ino,
+        ):
+            raise PolicyError(
+                "unsupported filesystem for Phase 0 cleanliness: "
+                "Unicode filename preservation required"
+            )
+    except PolicyError:
+        raise
+    except OSError as exc:
+        raise PolicyError(
+            f"unsupported filesystem for Phase 0 cleanliness: cannot verify semantics: {exc}"
+        ) from exc
+    finally:
+        if directory_fd >= 0:
+            cleanup_error: OSError | None = None
+            for name in reversed(created):
+                try:
+                    os.unlink(name, dir_fd=directory_fd)
+                except OSError as exc:
+                    cleanup_error = cleanup_error or exc
+            os.close(directory_fd)
+            try:
+                os.rmdir(directory, dir_fd=context.git_fd)
+            except OSError as exc:
+                cleanup_error = cleanup_error or exc
+            if cleanup_error is not None and sys.exc_info()[0] is None:
+                raise PolicyError(
+                    "unsupported filesystem for Phase 0 cleanliness: "
+                    f"cannot clean capability probe: {cleanup_error}"
+                ) from cleanup_error
+        elif directory_created:
+            try:
+                os.rmdir(directory, dir_fd=context.git_fd)
+            except OSError:
+                pass
 
 
 def _safe_relative(value: str) -> tuple[str, ...]:
@@ -545,12 +698,21 @@ def _safe_relative(value: str) -> tuple[str, ...]:
     return pure.parts
 
 
-def create_snapshot(context: GitContext, destination_fd: int, revision: str) -> None:
+@dataclass(frozen=True)
+class TreeEntry:
+    path: str
+    parts: tuple[str, ...]
+    oid: str
+    size: int
+    executable: bool
+
+
+def _tree_entries(context: GitContext, revision: str) -> tuple[TreeEntry, ...]:
     raw = context.git(
         ("ls-tree", "-rz", "--full-tree", "--long", "-r", revision),
         max_stdout=MAX_TREE_LIST_BYTES,
     )
-    entries: list[tuple[str, tuple[str, ...], str, int, int]] = []
+    entries: list[TreeEntry] = []
     total = 0
     for item in raw.split(b"\0"):
         if not item:
@@ -565,32 +727,200 @@ def create_snapshot(context: GitContext, destination_fd: int, revision: str) -> 
         if match["kind"] != "blob" or mode not in {"100644", "100755"}:
             raise PolicyError(f"unsupported Git tree entry: {match['path']} ({mode})")
         size = int(match["size"])
+        if size < 0:
+            raise PolicyError("Git returned malformed tree entry size")
         if size > MAX_INSPECTED_FILE_BYTES:
             raise PolicyError(
-                f"tracked file exceeds {MAX_INSPECTED_FILE_BYTES} bytes: {match['path']}"
+                "tracked file exceeds "
+                f"{MAX_INSPECTED_FILE_BYTES} bytes: {match['path']}"
             )
         total += size
         if total > MAX_INSPECTED_TOTAL_BYTES:
-            raise PolicyError(f"Git tree exceeds {MAX_INSPECTED_TOTAL_BYTES} inspected bytes")
+            raise PolicyError(
+                f"Git tree exceeds {MAX_INSPECTED_TOTAL_BYTES} inspected bytes"
+            )
         entries.append(
-            (
+            TreeEntry(
                 match["path"],
                 _safe_relative(match["path"]),
                 match["oid"],
                 size,
-                0o755 if mode == "100755" else 0o644,
+                mode == "100755",
             )
         )
     if not entries:
         raise PolicyError("repository has no tracked regular files")
-    for relative, parts, oid, size, mode in entries:
-        content = context.git(("cat-file", "blob", oid), max_stdout=size)
-        if len(content) != size:
-            raise PolicyError(f"Git blob size changed for {relative}")
+    return tuple(entries)
+
+
+def _read_blob(context: GitContext, entry: TreeEntry) -> bytes:
+    content = context.git(("cat-file", "blob", entry.oid), max_stdout=entry.size)
+    if len(content) != entry.size:
+        raise PolicyError(f"Git blob size changed for {entry.path}")
+    return content
+
+
+_WORKTREE_TYPE_MISMATCH = {
+    errno.ENOENT,
+    errno.ENOTDIR,
+    errno.EISDIR,
+    errno.ELOOP,
+    errno.EINVAL,
+    errno.ENXIO,
+    errno.ENODEV,
+}
+
+
+def _tracked_worktree_is_clean(
+    context: GitContext, entries: tuple[TreeEntry, ...]
+) -> bool:
+    clean = True
+    total = 0
+    for entry in entries:
+        expected = _read_blob(context, entry)
+        descriptor = -1
+        parent_descriptor = -1
+        name = ""
         try:
-            atomic_write(destination_fd, parts, content, mode=mode, create_parents=True)
+            descriptor, parent_descriptor, name = open_regular_with_parent(
+                context.repo_fd, entry.parts
+            )
         except OSError as exc:
-            raise PolicyError(f"cannot extract Git tree entry safely: {relative}: {exc}") from exc
+            if exc.errno in _WORKTREE_TYPE_MISMATCH:
+                clean = False
+                continue
+            raise PolicyError(
+                f"cannot compare tracked worktree file safely: {entry.path}: {exc}"
+            ) from exc
+        try:
+            before = os.fstat(descriptor)
+            if before.st_size > MAX_INSPECTED_FILE_BYTES:
+                raise PolicyError(
+                    "tracked worktree file exceeds "
+                    f"{MAX_INSPECTED_FILE_BYTES} bytes: {entry.path}"
+                )
+            total += before.st_size
+            if total > MAX_INSPECTED_TOTAL_BYTES:
+                raise PolicyError(
+                    "tracked worktree exceeds "
+                    f"{MAX_INSPECTED_TOTAL_BYTES} inspected bytes"
+                )
+            content = read_regular(
+                descriptor,
+                expected_size=before.st_size,
+                max_bytes=MAX_INSPECTED_FILE_BYTES,
+            )
+            after = os.fstat(descriptor)
+            if (
+                before.st_dev,
+                before.st_ino,
+                before.st_mode,
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            ) != (
+                after.st_dev,
+                after.st_ino,
+                after.st_mode,
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            ):
+                raise PolicyError(
+                    f"tracked worktree file changed during raw comparison: {entry.path}"
+                )
+            pathname = os.stat(
+                name, dir_fd=parent_descriptor, follow_symlinks=False
+            )
+            if not stat.S_ISREG(pathname.st_mode) or (
+                pathname.st_dev,
+                pathname.st_ino,
+            ) != (after.st_dev, after.st_ino):
+                raise PolicyError(
+                    f"tracked worktree pathname changed during raw comparison: {entry.path}"
+                )
+            if (
+                content != expected
+                or bool(before.st_mode & stat.S_IXUSR) != entry.executable
+            ):
+                clean = False
+        except PolicyError:
+            raise
+        except OSError as exc:
+            raise PolicyError(
+                f"cannot compare tracked worktree file safely: {entry.path}: {exc}"
+            ) from exc
+        finally:
+            os.close(descriptor)
+            os.close(parent_descriptor)
+    return clean
+
+
+@dataclass(frozen=True)
+class PinnedState:
+    head: str
+    branch: str
+    index: bytes
+    index_mode: int
+    index_records: tuple[IndexRecord, ...]
+    status: bytes
+    entries: tuple[TreeEntry, ...]
+    staged_index_clean: bool
+    tracked_worktree_clean: bool
+
+
+def pin_state(context: GitContext) -> PinnedState:
+    reject_configured_filters(context)
+    _require_cleanliness_filesystem(context)
+    replacements = context.git(("for-each-ref", "--format=%(refname)", "refs/replace/"))
+    if replacements:
+        raise PolicyError("Git replacement refs are unsupported")
+    index, index_mode = _read_index(context)
+    head = _head(context)
+    entries = _tree_entries(context, head)
+    return PinnedState(
+        head,
+        _branch(context),
+        index,
+        index_mode,
+        _index_records(context),
+        _status(context),
+        entries,
+        _staged_index_is_clean(context, head),
+        _tracked_worktree_is_clean(context, entries),
+    )
+
+
+def verify_state(context: GitContext, pinned: PinnedState) -> None:
+    if _branch(context) != pinned.branch or _head(context) != pinned.head:
+        raise PolicyError("repository HEAD moved during supervisor run")
+    if _read_index(context) != (pinned.index, pinned.index_mode):
+        raise PolicyError("repository index moved during supervisor run")
+    if _status(context) != pinned.status:
+        raise PolicyError("repository state moved during supervisor run")
+    if pinned.tracked_worktree_clean and not _tracked_worktree_is_clean(
+        context, pinned.entries
+    ):
+        raise PolicyError("tracked worktree moved during supervisor run")
+
+
+def create_snapshot(
+    context: GitContext, destination_fd: int, entries: tuple[TreeEntry, ...]
+) -> None:
+    for entry in entries:
+        content = _read_blob(context, entry)
+        try:
+            atomic_write(
+                destination_fd,
+                entry.parts,
+                content,
+                mode=0o755 if entry.executable else 0o644,
+                create_parents=True,
+            )
+        except OSError as exc:
+            raise PolicyError(
+                f"cannot extract Git tree entry safely: {entry.path}: {exc}"
+            ) from exc
 
 
 @dataclass(frozen=True)
@@ -613,6 +943,36 @@ def validate_rendered(report: JournalResult) -> ValidatedMutation:
     if not text.strip() or not text.endswith("\n"):
         raise PolicyError("rendered journal must be nonempty and end with newline")
     return ValidatedMutation(report.path, _safe_relative(report.path), content)
+
+
+def reject_ignored_journal_conflicts(
+    context: GitContext, mutation: ValidatedMutation
+) -> None:
+    for end in range(1, len(mutation.parts) + 1):
+        relative = "/".join(mutation.parts[:end])
+        try:
+            metadata = os.stat(relative, dir_fd=context.repo_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            metadata = None
+        except OSError as exc:
+            raise PolicyError(f"cannot inspect proposed journal path safely: {exc}") from exc
+        if metadata is not None and _is_ignored(context, relative):
+            if stat.S_ISDIR(metadata.st_mode):
+                kind = "directory"
+            elif stat.S_ISREG(metadata.st_mode):
+                kind = "file"
+            elif stat.S_ISLNK(metadata.st_mode):
+                kind = "symlink"
+            else:
+                kind = "special file"
+            label = (
+                "required journal parent"
+                if end < len(mutation.parts)
+                else "proposed journal path"
+            )
+            raise PolicyError(f"{label} conflicts with ignored {kind}: {relative}")
+    if _is_ignored(context, mutation.path):
+        raise PolicyError(f"generated journal path is ignored by Git: {mutation.path}")
 
 
 def _container_absent(executor: CommandExecutor, name: str, cwd: Path) -> bool:
@@ -841,6 +1201,8 @@ def _verify_untracked(
         raise PolicyError("repository index moved during supervisor run")
     if _status(context) != _expected_untracked(mutation):
         raise PolicyError("repository state moved during supervisor run")
+    if not _tracked_worktree_is_clean(context, pinned.entries):
+        raise PolicyError("tracked worktree moved during supervisor run")
 
 
 def _entry_for(records: tuple[IndexRecord, ...], path: bytes) -> IndexRecord | None:
@@ -870,6 +1232,8 @@ def _verify_staged(
         raise PolicyError("unrelated index state moved during supervisor run")
     if _status(context) != b"A  " + path + b"\0":
         raise PolicyError("repository state moved during supervisor run")
+    if not _tracked_worktree_is_clean(context, pinned.entries):
+        raise PolicyError("tracked worktree moved during supervisor run")
     if not _journal_is_owned(context, mutation, lease):
         raise PolicyError("journal path was replaced during supervisor run")
 
@@ -1182,11 +1546,18 @@ class Supervisor:
             with GitContext(self.repo, self.executor, hooks) as context:
                 pinned = pin_state(context)
                 verify_state(context, pinned)
-                if apply and pinned.status:
-                    raise PolicyError("apply target has uncommitted, untracked, or ignored changes")
+                if apply and (
+                    pinned.status
+                    or not pinned.staged_index_clean
+                    or not pinned.tracked_worktree_clean
+                ):
+                    raise PolicyError(
+                        "apply target has staged, tracked worktree, or non-ignored "
+                        "untracked changes"
+                    )
                 snapshot_fd = open_directory(snapshot)
                 try:
-                    create_snapshot(context, snapshot_fd, pinned.head)
+                    create_snapshot(context, snapshot_fd, pinned.entries)
                     os.fchmod(snapshot_fd, 0o555)
                     prepare_name = f"commitment-prepare-{uuid.uuid4().hex}"
                     prepare_command = build_container_command(
@@ -1236,6 +1607,7 @@ class Supervisor:
                         ).strip()
                     )
                     mutation = validate_rendered(report)
+                    reject_ignored_journal_conflicts(context, mutation)
                     commit_data = (
                         prepare_commit(context, temporary, mutation, pinned.head)
                         if commit
