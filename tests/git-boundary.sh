@@ -103,11 +103,25 @@ noop_base=$(container_git commitment rev-parse HEAD)
 COMMITMENT_SESSION_ID=boundary-noop publisher session-start commitment
 podman run --rm --network=none --security-opt=no-new-privileges \
     -v "$TMP/commitment:/workspace/commitment:rw,Z" \
+    -v "$ROOT/commitment-log.sh:/usr/local/bin/commitment-log:ro,Z" \
     -v "$ROOT/session-outcome.sh:/usr/local/bin/commitment-outcome:ro,Z" \
     -e COMMITMENT_SESSION_ID=boundary-noop \
+    -e COMMITMENT_ROOT=/workspace/commitment \
     -e COMMITMENT_OUTCOME_FILE=/workspace/commitment/.git/commitment-session-outcome \
     -w /workspace/commitment "$IMAGE" \
-    /usr/local/bin/commitment-outcome NOOP "No substantive boundary change was justified"
+    sh -c '
+        test -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${COMMITMENT_GITHUB_TOKEN_FILE:-}${LAB_GITHUB_TOKEN_FILE:-}"
+        commitment-log observation "Bounded research found nothing worth retaining" source=https://example.invalid/research
+        commitment-outcome NOOP "No substantive boundary change was justified"
+    '
+tail -n 2 "$TMP/commitment/runlog.jsonl" | jq -e -s '
+    length == 2 and
+    all(.session_id == "boundary-noop") and
+    .[0].type == "observation" and
+    .[0].source == "https://example.invalid/research" and
+    .[1].type == "session_end" and
+    .[1].outcome == "NOOP"
+' >/dev/null || fail "trusted helpers did not append valid session records across the container boundary"
 [[ $(COMMITMENT_SESSION_ID=boundary-noop publisher session-outcome commitment) == NOOP ]] ||
     fail "NOOP outcome was not recognized across the container boundary"
 noop_result=$(COMMITMENT_SESSION_ID=boundary-noop AGENT_BASE_HEAD="$noop_base" AGENT_OUTCOME=NOOP \

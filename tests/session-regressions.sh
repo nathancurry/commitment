@@ -19,7 +19,14 @@ assert_contains "$ROOT/prompt.txt" '(2) unfinished substantive work and checkpoi
 assert_contains "$ROOT/prompt.txt" '(3) ready evidenced queue work'
 assert_contains "$ROOT/prompt.txt" '(4) relevant memory'
 assert_contains "$ROOT/prompt.txt" '(5) repository state and demonstrated defects'
-assert_contains "$ROOT/prompt.txt" '(6) bounded outward research when appropriate'
+assert_contains "$ROOT/prompt.txt" '(6) bounded outward research'
+assert_contains "$ROOT/prompt.txt" '(7) NOOP if nothing worthwhile is found'
+assert_contains "$ROOT/prompt.txt" 'If stages 1-5 yield no substantive candidate, you MUST perform a brief bounded outward research pass before choosing NOOP'
+assert_contains "$ROOT/prompt.txt" 'This research requirement does not apply when meaningful work from stages 1-5 already justifies the session.'
+assert_contains "$ROOT/prompt.txt" 'browse indefinitely, or force a memory/queue entry'
+assert_contains "$ROOT/prompt.txt" '`git status --short`'
+assert_contains "$ROOT/prompt.txt" '`git log --oneline -n 5`'
+assert_contains "$ROOT/AGENTS.md" 'Inspect ordinary Git state and recent history in both repositories'
 
 git init -b main "$TMP/repo" >/dev/null
 git -C "$TMP/repo" config user.name Fixture

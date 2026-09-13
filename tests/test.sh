@@ -185,6 +185,11 @@ sed -i \
     -e 's|^GIT_AUTHOR_EMAIL=.*|GIT_AUTHOR_EMAIL=creative@example.invalid|' \
     "$CONFIG"
 assert_file "$HOME/.local/bin/commitment"
+assert_file "$HOME/.local/libexec/commitment/commitment-log.sh"
+[[ -x "$HOME/.local/libexec/commitment/commitment-log.sh" ]] || fail "installed runlog helper is not executable"
+[[ ! -L "$HOME/.local/libexec/commitment/commitment-log.sh" ]] || fail "installed runlog helper follows source edits"
+[[ ! "$ROOT/commitment-log.sh" -ef "$HOME/.local/libexec/commitment/commitment-log.sh" ]] ||
+    fail "installed runlog helper is not an explicit copy"
 assert_file "$XDG_CONFIG_HOME/systemd/user/commitment.timer"
 assert_contains "$XDG_CONFIG_HOME/systemd/user/commitment.timer" 'OnCalendar=daily'
 grep -Fxq 'CONTINUE_SESSION=false' "$CONFIG" || fail "fresh install enabled native session continuation"
@@ -272,8 +277,10 @@ pass "operator-selected Ollama model and limits"
 [[ $(git -C "$TMP/commitment" log -1 --format=%s) == checkpoint:* ]] || fail "commitment checkpoint missing"
 [[ $(git -C "$TMP/lab" log -1 --format=%s) == checkpoint:* ]] || fail "lab checkpoint missing"
 [[ $("$TMP/lab/small-program") == revised ]] || fail "program revision did not survive"
-mount_count=$(grep -cE ':/workspace/commitment(-lab)?:rw,Z|:/home/commitment/\.config/opencode/opencode.json:ro,Z|:/home/commitment/\.local/share/opencode:rw,Z|:/usr/local/bin/commitment-outcome:ro,Z' "$FAKE_PODMAN_ARGS")
-[[ $mount_count -eq 5 ]] || fail "expected exactly five intended mounts"
+mount_count=$(grep -cE ':/workspace/commitment(-lab)?:rw,Z|:/home/commitment/\.config/opencode/opencode.json:ro,Z|:/home/commitment/\.local/share/opencode:rw,Z|:/usr/local/bin/commitment-(outcome|log):ro,Z' "$FAKE_PODMAN_ARGS")
+[[ $mount_count -eq 6 ]] || fail "expected exactly six intended mounts"
+grep -Fxq "$HOME/.local/libexec/commitment/commitment-log.sh:/usr/local/bin/commitment-log:ro,Z" "$FAKE_PODMAN_ARGS" ||
+    fail "installed runlog helper was not mounted read-only"
 ! grep -Fq "$HOME:" "$FAKE_PODMAN_ARGS" || fail "home directory was mounted"
 ! grep -Fq 'GITHUB_TOKEN' "$FAKE_PODMAN_ARGS" || fail "GitHub credential was passed"
 pass "configuration generation, both workspaces, checkpoints, program revision, and mount boundary"
@@ -422,6 +429,8 @@ pass "accurate push failure with local preservation"
 "$ROOT/uninstall.sh" >/dev/null
 [[ ! -e "$HOME/.local/bin/commitment" ]] || fail "launcher survived uninstall"
 [[ ! -e "$XDG_CONFIG_HOME/systemd/user/commitment.timer" ]] || fail "timer survived uninstall"
+[[ ! -e "$HOME/.local/libexec/commitment/commitment-log.sh" ]] || fail "runlog helper survived uninstall"
+[[ ! -e "$HOME/.local/libexec/commitment/session-outcome.sh" ]] || fail "outcome helper survived uninstall"
 assert_file "$XDG_CONFIG_HOME/commitment/config.env"
 assert_file "$XDG_DATA_HOME/commitment/opencode-data/preserved"
 assert_file "$TMP/lab/small-program"

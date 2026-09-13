@@ -12,6 +12,7 @@ runtime_path=$(readlink -f -- "$0")
 RUNTIME_DIR=$(CDPATH= cd -- "$(dirname -- "$runtime_path")" && pwd)
 PUBLISHER=${COMMITMENT_PUBLISHER:-"$RUNTIME_DIR/publish.sh"}
 OUTCOME_HELPER=${COMMITMENT_OUTCOME_HELPER:-"$RUNTIME_DIR/session-outcome.sh"}
+LOG_HELPER=${COMMITMENT_LOG_HELPER:-"$RUNTIME_DIR/commitment-log.sh"}
 
 [[ -r "$CONFIG_FILE" ]] || die "configuration not found: $CONFIG_FILE"
 # shellcheck source=/dev/null
@@ -30,6 +31,7 @@ GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}
 [[ -d "$LAB_REPO/.git" ]] || die "not a Git repository: $LAB_REPO"
 [[ -x "$PUBLISHER" ]] || die "trusted publisher not installed: $PUBLISHER"
 [[ -x "$OUTCOME_HELPER" ]] || die "session outcome helper not installed: $OUTCOME_HELPER"
+[[ -x "$LOG_HELPER" ]] || die "runlog helper not installed: $LOG_HELPER"
 
 mkdir -p "$STATE_DIR" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data"
 exec 9>"$STATE_DIR/run.lock"
@@ -124,6 +126,7 @@ container_args=(run --rm --name "$container_name"
     -v "$STATE_DIR/opencode-config/opencode.json:/home/commitment/.config/opencode/opencode.json:ro,Z"
     -v "$STATE_DIR/opencode-data:/home/commitment/.local/share/opencode:rw,Z"
     -v "$OUTCOME_HELPER:/usr/local/bin/commitment-outcome:ro,Z"
+    -v "$LOG_HELPER:/usr/local/bin/commitment-log:ro,Z"
     -w /workspace/commitment
     -e HOME=/home/commitment
     -e XDG_CONFIG_HOME=/home/commitment/.config
