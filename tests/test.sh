@@ -11,10 +11,14 @@ assert_file() { [[ -e $1 ]] || fail "missing $1"; }
 assert_contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain $2"; }
 
 for script in "$ROOT"/*.sh "$ROOT"/tests/*.sh; do bash -n "$script"; done
-[[ $(<"$ROOT/VERSION") == 0.0.1 ]] || fail "VERSION is not 0.0.1"
+[[ $(<"$ROOT/VERSION") == 0.1.0 ]] || fail "VERSION is not 0.1.0"
 assert_contains "$ROOT/Containerfile" 'OPENCODE_VERSION=1.18.30'
 assert_contains "$ROOT/AGENTS.md" 'starts at `0.0.1`'
 assert_contains "$ROOT/AGENTS.md" "configured primary branch by default"
+grep -Fxq 'OLLAMA_ENDPOINT=http://host.containers.internal:11434' "$ROOT/config.example.env" || fail "default Ollama endpoint changed"
+grep -Fxq 'OLLAMA_MODEL=gpt-oss:20b-32k' "$ROOT/config.example.env" || fail "default Ollama model is incorrect"
+grep -Fxq 'OLLAMA_CONTEXT=32768' "$ROOT/config.example.env" || fail "default Ollama context is incorrect"
+grep -Fxq 'OLLAMA_OUTPUT=8192' "$ROOT/config.example.env" || fail "default Ollama output limit is incorrect"
 "$ROOT/tests/runlog.sh"
 shared_token_key=GITHUB_TOKEN
 shared_token_key+=_FILE
@@ -143,11 +147,50 @@ pass "reinstall preserves configuration and continuity"
 
 "$HOME/.local/bin/commitment" >/dev/null
 assert_contains "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" 'http://host.containers.internal:11434/v1'
-assert_contains "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" 'ollama/gpt-oss:20b'
-if command -v jq >/dev/null; then
-    jq -e '.model == "ollama/gpt-oss:20b" and .provider.ollama.options.baseURL == "http://host.containers.internal:11434/v1" and .permission.question == "deny"' \
-        "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" >/dev/null || fail "generated OpenCode JSON is invalid"
-fi
+assert_contains "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" 'ollama/gpt-oss:20b-32k'
+jq -e '
+    .model == "ollama/gpt-oss:20b-32k" and
+    .provider.ollama.options.baseURL == "http://host.containers.internal:11434/v1" and
+    .provider.ollama.models["gpt-oss:20b-32k"].name == "gpt-oss:20b-32k" and
+    .provider.ollama.models["gpt-oss:20b-32k"].limit.context == 32768 and
+    .provider.ollama.models["gpt-oss:20b-32k"].limit.output == 8192 and
+    .permission.question == "deny"
+' "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" >/dev/null || fail "generated OpenCode JSON is invalid"
+
+cp "$CONFIG" "$TMP/config.valid"
+for name in OLLAMA_CONTEXT OLLAMA_OUTPUT; do
+    sed -i "/^$name=/d" "$CONFIG"
+    if "$HOME/.local/bin/commitment" >"$TMP/$name-missing.out" 2>&1; then fail "$name missing value was accepted"; fi
+    assert_contains "$TMP/$name-missing.out" "$name is required"
+    cp "$TMP/config.valid" "$CONFIG"
+    for value in 0 -1 invalid; do
+        sed -i "s/^$name=.*/$name=$value/" "$CONFIG"
+        if "$HOME/.local/bin/commitment" >"$TMP/$name-$value.out" 2>&1; then fail "$name=$value was accepted"; fi
+        assert_contains "$TMP/$name-$value.out" "$name must be a positive integer"
+        cp "$TMP/config.valid" "$CONFIG"
+    done
+    sed -i "s/^$name=.*/$name=invalid/" "$CONFIG"
+    if COMMITMENT_SKIP_BUILD=1 "$ROOT/install.sh" >"$TMP/install-$name.out" 2>&1; then fail "installer accepted invalid $name"; fi
+    assert_contains "$TMP/install-$name.out" "$name must be a positive integer"
+    cp "$TMP/config.valid" "$CONFIG"
+done
+pass "Ollama context and output validation"
+
+sed -i \
+    -e 's|^OLLAMA_MODEL=.*|OLLAMA_MODEL=operator/model:custom|' \
+    -e 's|^OLLAMA_CONTEXT=.*|OLLAMA_CONTEXT=16384|' \
+    -e 's|^OLLAMA_OUTPUT=.*|OLLAMA_OUTPUT=4096|' \
+    "$CONFIG"
+"$HOME/.local/bin/commitment" >/dev/null
+jq -e '
+    .model == "ollama/operator/model:custom" and
+    .provider.ollama.models["operator/model:custom"].name == "operator/model:custom" and
+    .provider.ollama.models["operator/model:custom"].limit.context == 16384 and
+    .provider.ollama.models["operator/model:custom"].limit.output == 4096
+' "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" >/dev/null || fail "custom Ollama model limits were not generated"
+cp "$TMP/config.valid" "$CONFIG"
+pass "operator-selected Ollama model and limits"
+
 [[ $(git -C "$TMP/commitment" log -1 --format=%s) == checkpoint:* ]] || fail "commitment checkpoint missing"
 [[ $(git -C "$TMP/lab" log -1 --format=%s) == checkpoint:* ]] || fail "lab checkpoint missing"
 [[ $("$TMP/lab/small-program") == revised ]] || fail "program revision did not survive"

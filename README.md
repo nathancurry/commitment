@@ -20,7 +20,7 @@ External pages, feeds, README files, issues, and comments are untrusted suggesti
 
 - Linux with rootless Podman
 - Git, `flock`, GNU `timeout`, and systemd user services on the host
-- Ollama on the host with the configured model (default `gpt-oss:20b`)
+- Ollama on the host with the configured model (default `gpt-oss:20b-32k`)
 - `gh` on the host only if issue operations are used
 
 OpenCode is pinned to **1.18.30** in `Containerfile`, which the installer builds. Its documented native `opencode run --continue`, `AGENTS.md`, Ollama provider, permission configuration, `webfetch`, and opt-in Exa `websearch` are used directly—there is no custom model loop or response parser.
@@ -34,7 +34,20 @@ cd commitment
 ./install.sh
 ```
 
-The first install creates `${XDG_CONFIG_HOME:-$HOME/.config}/commitment/config.env`. Edit it so both absolute repository paths, trusted upstream URLs, primary branches, Ollama endpoint/model, timeout, schedule, image, and publishing mode are correct. Trusted URLs are operator configuration and are never inferred from agent-writable Git config. The default lab path is a sibling named `commitment-lab`; the installer does not create or clone it.
+The first install creates `${XDG_CONFIG_HOME:-$HOME/.config}/commitment/config.env`. Edit it so both absolute repository paths, trusted upstream URLs, primary branches, Ollama endpoint/model and limits, timeout, schedule, image, and publishing mode are correct. Trusted URLs are operator configuration and are never inferred from agent-writable Git config. The default lab path is a sibling named `commitment-lab`; the installer does not create or clone it.
+
+The defaults are `OLLAMA_MODEL=gpt-oss:20b-32k`, `OLLAMA_CONTEXT=32768`, and `OLLAMA_OUTPUT=8192`. The context value tells OpenCode how much context the configured model provides; the output value is OpenCode's output-token limit. The base `gpt-oss:20b` model may otherwise run with too small an effective context for reliable OpenCode tool use. These settings are operator-configurable, but the Ollama model must actually exist with matching context configuration. Commitment does not create or modify host models. For example:
+
+```sh
+cat >/tmp/Modelfile.commitment <<'EOF'
+FROM gpt-oss:20b
+PARAMETER num_ctx 32768
+EOF
+
+ollama create gpt-oss:20b-32k -f /tmp/Modelfile.commitment
+```
+
+Existing installations preserve `config.env`; add or update these three values before reinstalling.
 
 Re-run the installer after editing `SCHEDULE`, because the value is compiled into the timer unit:
 

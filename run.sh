@@ -16,9 +16,11 @@ PUBLISHER=${COMMITMENT_PUBLISHER:-"$RUNTIME_DIR/publish.sh"}
 # shellcheck source=/dev/null
 source "$CONFIG_FILE"
 
-for name in COMMITMENT_REPO COMMITMENT_BRANCH COMMITMENT_UPSTREAM_URL LAB_REPO LAB_BRANCH LAB_UPSTREAM_URL OLLAMA_ENDPOINT OLLAMA_MODEL SESSION_TIMEOUT PUBLISH_MODE CONTAINER_IMAGE; do
+for name in COMMITMENT_REPO COMMITMENT_BRANCH COMMITMENT_UPSTREAM_URL LAB_REPO LAB_BRANCH LAB_UPSTREAM_URL OLLAMA_ENDPOINT OLLAMA_MODEL OLLAMA_CONTEXT OLLAMA_OUTPUT SESSION_TIMEOUT PUBLISH_MODE CONTAINER_IMAGE; do
     [[ -n ${!name:-} ]] || die "$name is required in $CONFIG_FILE"
 done
+[[ $OLLAMA_CONTEXT =~ ^[1-9][0-9]*$ ]] || die "OLLAMA_CONTEXT must be a positive integer"
+[[ $OLLAMA_OUTPUT =~ ^[1-9][0-9]*$ ]] || die "OLLAMA_OUTPUT must be a positive integer"
 [[ $SESSION_TIMEOUT =~ ^[1-9][0-9]*$ ]] || die "SESSION_TIMEOUT must be a positive integer"
 [[ $PUBLISH_MODE == checkpoint || $PUBLISH_MODE == push ]] || die "PUBLISH_MODE must be checkpoint or push"
 [[ -d "$COMMITMENT_REPO/.git" ]] || die "not a Git repository: $COMMITMENT_REPO"
@@ -63,7 +65,15 @@ cat >"$tmp_config" <<EOF
       "npm": "@ai-sdk/openai-compatible",
       "name": "Ollama (operator configured)",
       "options": { "baseURL": "$endpoint_json" },
-      "models": { "$model_json": { "name": "$model_json" } }
+      "models": {
+        "$model_json": {
+          "name": "$model_json",
+          "limit": {
+            "context": $OLLAMA_CONTEXT,
+            "output": $OLLAMA_OUTPUT
+          }
+        }
+      }
     }
   },
   "permission": {

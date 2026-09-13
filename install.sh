@@ -48,6 +48,10 @@ fi
 source "$CONFIG_FILE"
 [[ -n ${CONTAINER_IMAGE:-} ]] || die "CONTAINER_IMAGE is required in $CONFIG_FILE"
 [[ -n ${SCHEDULE:-} && $SCHEDULE != *$'\n'* ]] || die "SCHEDULE must be a one-line systemd calendar expression"
+for name in OLLAMA_CONTEXT OLLAMA_OUTPUT; do
+    [[ -n ${!name:-} ]] || die "$name is required in $CONFIG_FILE"
+    [[ ${!name} =~ ^[1-9][0-9]*$ ]] || die "$name must be a positive integer"
+done
 
 if [[ ${COMMITMENT_SKIP_BUILD:-0} != 1 ]]; then
     podman build -t "$CONTAINER_IMAGE" -f "$SOURCE_DIR/Containerfile" "$SOURCE_DIR"
