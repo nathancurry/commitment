@@ -27,6 +27,14 @@ assert_contains "$ROOT/prompt.txt" 'browse indefinitely, or force a memory/queue
 assert_contains "$ROOT/prompt.txt" '`git status --short`'
 assert_contains "$ROOT/prompt.txt" '`git log --oneline -n 5`'
 assert_contains "$ROOT/AGENTS.md" 'Inspect ordinary Git state and recent history in both repositories'
+assert_contains "$ROOT/prompt.txt" 'current-session bookkeeping normally makes `runlog.jsonl` dirty; that alone is expected and is not unfinished substantive work'
+assert_contains "$ROOT/prompt.txt" 'never restore or discard current-session runlog bookkeeping'
+assert_contains "$ROOT/AGENTS.md" '`runlog.jsonl` being dirty solely from current-session bookkeeping is expected and is not unfinished substantive work'
+assert_contains "$ROOT/AGENTS.md" 'never restore or discard current-session runlog bookkeeping'
+assert_contains "$ROOT/prompt.txt" 'fix the command, retry it yourself, and continue the autonomous session'
+assert_contains "$ROOT/prompt.txt" 'Do not ask the human to repair an ordinary command-formatting mistake'
+assert_contains "$ROOT/AGENTS.md" 'fix the command, retry it yourself, and continue the autonomous session'
+assert_contains "$ROOT/AGENTS.md" 'Do not ask the human to repair an ordinary command-formatting mistake'
 
 git init -b main "$TMP/repo" >/dev/null
 git -C "$TMP/repo" config user.name Fixture

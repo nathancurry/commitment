@@ -3,6 +3,10 @@ set -euo pipefail
 
 die() { printf 'commitment-outcome: %s\n' "$*" >&2; exit 1; }
 
+normalize_summary() {
+    jq -nr --arg value "$1" '$value | gsub("[[:space:]]+"; " ") | sub("^ "; "") | sub(" $"; "")'
+}
+
 outcome=${1:-}
 summary=${2:-}
 case $outcome in
@@ -10,7 +14,8 @@ case $outcome in
     *) die "outcome must be COMMITTED_CHANGE, NOOP, CHECKPOINT_UNFINISHED, or FAILED" ;;
 esac
 [[ -n ${COMMITMENT_SESSION_ID:-} ]] || die "COMMITMENT_SESSION_ID is required"
-[[ -n $summary && $summary != *$'\n'* ]] || die "a one-line summary is required"
+summary=$(normalize_summary "$summary")
+[[ -n $summary ]] || die "a summary is required"
 
 root=${COMMITMENT_ROOT:-$(git rev-parse --show-toplevel)}
 [[ -d "$root/.git" ]] || die "Commitment repository is unavailable: $root"

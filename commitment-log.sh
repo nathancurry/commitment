@@ -3,6 +3,10 @@ set -euo pipefail
 
 die() { printf 'commitment-log: %s\n' "$*" >&2; exit 1; }
 
+normalize_summary() {
+    jq -nr --arg value "$1" '$value | gsub("[[:space:]]+"; " ") | sub("^ "; "") | sub(" $"; "")'
+}
+
 event_type=${1:-}
 summary=${2:-}
 case $event_type in
@@ -11,6 +15,7 @@ case $event_type in
     *) die "unsupported agent event type: $event_type" ;;
 esac
 [[ -n ${COMMITMENT_SESSION_ID:-} ]] || die "COMMITMENT_SESSION_ID is required"
+summary=$(normalize_summary "$summary")
 [[ -n $summary ]] || die "a summary is required"
 shift 2
 

@@ -19,6 +19,8 @@ assert_contains "$ROOT/prompt.txt" 'implement, execute, and test'
 assert_contains "$ROOT/prompt.txt" 'recent runlog entries'
 assert_contains "$ROOT/prompt.txt" 'ready evidenced queue work'
 assert_contains "$ROOT/prompt.txt" 'Never edit or rewrite runlog.jsonl directly.'
+assert_contains "$ROOT/prompt.txt" '`commitment-log` and `commitment-outcome` are shell commands, not OpenCode tools.'
+assert_contains "$ROOT/prompt.txt" 'Always invoke them through the bash tool.'
 assert_contains "$ROOT/prompt.txt" 'commitment-log TYPE'
 assert_contains "$ROOT/prompt.txt" 'commitment-log research'
 assert_contains "$ROOT/prompt.txt" 'Use websearch, webfetch, or an equivalent existing web capability to inspect each source during the current session before recording it.'
@@ -30,7 +32,9 @@ for outcome in COMMITTED_CHANGE NOOP CHECKPOINT_UNFINISHED FAILED; do
 done
 
 assert_contains "$ROOT/AGENTS.md" 'Never edit, append to, or rewrite `runlog.jsonl` directly.'
-assert_contains "$ROOT/AGENTS.md" 'Use `commitment-log TYPE'
+assert_contains "$ROOT/AGENTS.md" '`commitment-log` is a shell command, not an OpenCode tool; always invoke it through the bash tool.'
+assert_contains "$ROOT/AGENTS.md" '`commitment-outcome` is a shell command, not an OpenCode tool; always invoke it through the bash tool.'
+assert_contains "$ROOT/AGENTS.md" 'commitment-log TYPE'
 assert_contains "$ROOT/AGENTS.md" 'appends one valid JSON object per line'
 for field in ts session_id type summary; do
     assert_contains "$ROOT/AGENTS.md" "\`$field\`"
@@ -61,7 +65,8 @@ historical='{ts:legacy,session_id:old,type:session_end,summary:preserved}'
 printf '%s\n' "$historical" >"$log"
 cp "$log" "$TMP/original-runlog"
 original_size=$(wc -c <"$log")
-special_summary=$'Quoted "summary" with \\ slash, spaces, and\na newline'
+special_summary=$' \tQuoted "summary" with \\ slash, spaces, and\na newline  \n'
+normalized_summary='Quoted "summary" with \ slash, spaces, and a newline'
 special_source=$'https://example.invalid/a path?quote="yes"\\tail\nsecond-line'
 
 COMMITMENT_ROOT="$repo" COMMITMENT_SESSION_ID=trusted-session \
@@ -72,7 +77,7 @@ cmp -n "$original_size" "$TMP/original-runlog" "$log" >/dev/null || fail "helper
 
 record=$(tail -n 1 "$log")
 printf '%s\n' "$record" | jq -e \
-    --arg summary "$special_summary" --arg source "$special_source" '
+    --arg summary "$normalized_summary" --arg source "$special_source" '
         type == "object" and
         .session_id == "trusted-session" and
         .type == "observation" and
@@ -86,6 +91,13 @@ ts=$(printf '%s\n' "$record" | jq -r .ts)
 date -d "$ts" >/dev/null 2>&1 || fail "helper timestamp cannot be parsed"
 
 line_count=$(wc -l <"$log")
+if COMMITMENT_ROOT="$repo" COMMITMENT_SESSION_ID=trusted-session \
+    "$ROOT/commitment-log.sh" decision $' \t\n ' >"$TMP/blank-summary.out" 2>&1; then
+    fail "commitment-log accepted a whitespace-only summary"
+fi
+assert_contains "$TMP/blank-summary.out" 'a summary is required'
+[[ $(wc -l <"$log") -eq $line_count ]] || fail "rejected blank summary appended a record"
+
 if COMMITMENT_ROOT="$repo" COMMITMENT_SESSION_ID=trusted-session \
     "$ROOT/commitment-log.sh" decision override session_id=forged >"$TMP/override.out" 2>&1; then
     fail "caller overrode session_id"
@@ -169,6 +181,25 @@ for session_id in missing-source missing-result missing-summary; do
     fi
 done
 
+if call_outcome blank-summary FAILED $' \t\n ' >"$TMP/blank-outcome.out" 2>&1; then
+    fail "commitment-outcome accepted a whitespace-only summary"
+fi
+assert_contains "$TMP/blank-outcome.out" 'a summary is required'
+[[ ! -e "$outcome_repo/.git/outcome-blank-summary" ]] || fail "rejected blank outcome created a marker"
+! rg -F '"session_id":"blank-summary","type":"session_end"' "$outcome_log" >/dev/null ||
+    fail "rejected blank outcome appended a session_end"
+
+call_outcome trailing-summary COMMITTED_CHANGE $'No internal work pending after research.\n'
+call_outcome embedded-summary CHECKPOINT_UNFINISHED $' \tCheckpoint work\n  remains\tunfinished.  '
+jq -eRn '
+    [inputs | fromjson? | select(.session_id == "trailing-summary" or .session_id == "embedded-summary")]
+    | length == 2 and
+      any(.[]; .session_id == "trailing-summary" and .type == "session_end" and
+          .summary == "No internal work pending after research." and .outcome == "COMMITTED_CHANGE") and
+      any(.[]; .session_id == "embedded-summary" and .type == "session_end" and
+          .summary == "Checkpoint work remains unfinished." and .outcome == "CHECKPOINT_UNFINISHED")
+' <"$outcome_log" >/dev/null || fail "outcome summaries were not normalized to one-line JSON text"
+
 for fields in \
     'result=Observed' \
     'source=https://example.invalid/research' \
@@ -187,15 +218,20 @@ done
 research_source=$'https://example.invalid/research?q="quoted"\\tail'
 research_result=$'Observed a repeated workflow; no actionable candidate\nwithin the bounded pass'
 COMMITMENT_ROOT="$outcome_repo" COMMITMENT_SESSION_ID=accepted-noop \
-    "$ROOT/commitment-log.sh" research "Inspected synthetic high-signal source" \
+    "$ROOT/commitment-log.sh" research $' \n Inspected\t synthetic high-signal\nsource  ' \
     "source=$research_source" "result=$research_result"
-call_outcome accepted-noop NOOP "No candidate survived bounded research"
+call_outcome accepted-noop NOOP $'No candidate survived bounded research.\n'
 jq -eRn --arg source "$research_source" --arg result "$research_result" '
     [inputs | fromjson? | select(
         .session_id == "accepted-noop" and .type == "research" and
+        .summary == "Inspected synthetic high-signal source" and
         .source == $source and .result == $result
     )] | length == 1
 ' <"$outcome_log" >/dev/null || fail "research JSON escaping or session ID was not preserved"
+jq -eRn '[inputs | fromjson? | select(
+    .session_id == "accepted-noop" and .type == "session_end" and
+    .summary == "No candidate survived bounded research." and .outcome == "NOOP"
+)] | length == 1' <"$outcome_log" >/dev/null || fail "research-gated NOOP summary was not normalized"
 
 for number in 1 2; do
     COMMITMENT_ROOT="$outcome_repo" COMMITMENT_SESSION_ID=multiple-research \
