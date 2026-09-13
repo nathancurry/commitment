@@ -71,6 +71,13 @@ Logs:
 journalctl --user -u commitment.service
 ```
 
+`runlog.jsonl` is Commitment's version-controlled, append-only operational and decision history. It contains concise significant events as JSON Lines, not chain-of-thought or a command transcript. Inspect recent entries or the full parsed history with:
+
+```sh
+tail -n 20 runlog.jsonl
+jq -s . runlog.jsonl
+```
+
 The timer and manual command use the same installed launcher and configuration. `flock` prevents overlap. `SESSION_TIMEOUT` terminates overlong sessions. For scheduled runs after logout, an administrator may run `loginctl enable-linger "$USER"`; the installer never changes lingering or invokes sudo.
 
 Before each run, trusted mirrors fetch each configured branch and permit only no-op, ahead-only, or fast-forward synchronization through bundles. Dirty work, a wrong branch, or divergence stops the run without discarding anything. After any agent exit, intended dirty changes are committed as explicitly unfinished checkpoints inside the uncredentialed container. A failed agent session is never pushed. Completed Commitment work should follow `AGENTS.md` versioning; independent lab work does not bump Commitment's version.

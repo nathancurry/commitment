@@ -15,6 +15,7 @@ for script in "$ROOT"/*.sh "$ROOT"/tests/*.sh; do bash -n "$script"; done
 assert_contains "$ROOT/Containerfile" 'OPENCODE_VERSION=1.18.30'
 assert_contains "$ROOT/AGENTS.md" 'starts at `0.0.1`'
 assert_contains "$ROOT/AGENTS.md" "configured primary branch by default"
+"$ROOT/tests/runlog.sh"
 shared_token_key=GITHUB_TOKEN
 shared_token_key+=_FILE
 commitment_remote_key=COMMITMENT_
