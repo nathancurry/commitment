@@ -6,7 +6,7 @@ die() { printf 'commitment-log: %s\n' "$*" >&2; exit 1; }
 event_type=${1:-}
 summary=${2:-}
 case $event_type in
-    observation|candidate|decision|change|test|failure|checkpoint) ;;
+    observation|candidate|decision|change|research|test|failure|checkpoint) ;;
     '') die "usage: commitment-log TYPE SUMMARY [FIELD=VALUE ...]" ;;
     *) die "unsupported agent event type: $event_type" ;;
 esac
@@ -17,6 +17,7 @@ shift 2
 fields=()
 seen=' '
 has_command=false
+has_source=false
 has_result=false
 for field in "$@"; do
     [[ $field == *=* ]] || die "optional fields must use FIELD=VALUE"
@@ -29,18 +30,26 @@ for field in "$@"; do
     esac
     [[ $seen != *" $key "* ]] || die "duplicate field: $key"
     seen+="$key "
-    if [[ $key == command ]]; then
-        [[ -n $value ]] || die "test command must not be empty"
-        has_command=true
-    elif [[ $key == result ]]; then
-        [[ -n $value ]] || die "test result must not be empty"
-        has_result=true
-    fi
+    case $key in
+        command)
+            [[ -n $value ]] || die "test command must not be empty"
+            has_command=true
+            ;;
+        source)
+            [[ -n $value ]] && has_source=true
+            ;;
+        result)
+            [[ -n $value ]] || die "test result must not be empty"
+            has_result=true
+            ;;
+    esac
     fields+=("$key=$value")
 done
 
 if [[ $event_type == test ]]; then
     $has_command && $has_result || die "test events require command and result"
+elif [[ $event_type == research ]]; then
+    $has_source && $has_result || die "research events require source and result"
 fi
 
 root=${COMMITMENT_ROOT:-$(git rev-parse --show-toplevel)}

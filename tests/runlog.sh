@@ -20,6 +20,10 @@ assert_contains "$ROOT/prompt.txt" 'recent runlog entries'
 assert_contains "$ROOT/prompt.txt" 'ready evidenced queue work'
 assert_contains "$ROOT/prompt.txt" 'Never edit or rewrite runlog.jsonl directly.'
 assert_contains "$ROOT/prompt.txt" 'commitment-log TYPE'
+assert_contains "$ROOT/prompt.txt" 'commitment-log research'
+assert_contains "$ROOT/prompt.txt" 'Use websearch, webfetch, or an equivalent existing web capability to inspect each source during the current session before recording it.'
+assert_contains "$ROOT/prompt.txt" 'NOOP requires at least one valid current-session `research` event with non-empty `source` and `result`'
+assert_contains "$ROOT/prompt.txt" 'other outcomes do not require research'
 assert_contains "$ROOT/prompt.txt" 'commitment-outcome OUTCOME'
 for outcome in COMMITTED_CHANGE NOOP CHECKPOINT_UNFINISHED FAILED; do
     assert_contains "$ROOT/prompt.txt" "$outcome"
@@ -38,6 +42,10 @@ assert_contains "$ROOT/AGENTS.md" 'The helper must succeed before the final resp
 assert_contains "$ROOT/AGENTS.md" 'exact `COMMITMENT_SESSION_ID`'
 assert_contains "$ROOT/AGENTS.md" 'never generate or supply those fields yourself'
 assert_contains "$ROOT/AGENTS.md" 'A `test` event additionally requires `command` and `result`'
+assert_contains "$ROOT/AGENTS.md" 'A `research` event requires non-empty `source` and `result`'
+assert_contains "$ROOT/AGENTS.md" 'Record it only after actually inspecting that source during the current session with an available web capability'
+assert_contains "$ROOT/AGENTS.md" 'Prior knowledge, invented or unopened URLs, hypothetical searches, and sources found only in old memory, queue, or runlog state do not qualify.'
+assert_contains "$ROOT/AGENTS.md" 'Never edit, append to, or rewrite `runlog.jsonl` directly.'
 assert_contains "$ROOT/AGENTS.md" 'executed during the current session and its result was observed'
 assert_contains "$ROOT/AGENTS.md" 'Never claim tests passed'
 assert_contains "$ROOT/AGENTS.md" 'Do not choose work merely because it is easy'
@@ -122,10 +130,95 @@ if COMMITMENT_ROOT="$repo" COMMITMENT_SESSION_ID=trusted-session \
     fail "commitment-log replaced the outcome helper"
 fi
 assert_contains "$TMP/session-end.out" 'unsupported agent event type: session_end'
+
+outcome_repo="$TMP/outcome-repo"
+mkdir -p "$outcome_repo/.git" "$outcome_repo/memory" "$outcome_repo/queue"
+outcome_log="$outcome_repo/runlog.jsonl"
+printf '%s\n' \
+    '{malformed historical line' \
+    '{"ts":"fixture","session_id":"older-session","type":"research","summary":"Old research","source":"https://example.invalid/old","result":"No candidate"}' \
+    >"$outcome_log"
+cp "$outcome_log" "$TMP/outcome-prefix"
+outcome_prefix_size=$(wc -c <"$outcome_log")
+
+call_outcome() {
+    local session_id=$1 outcome=$2
+    shift 2
+    COMMITMENT_ROOT="$outcome_repo" COMMITMENT_SESSION_ID="$session_id" \
+        COMMITMENT_OUTCOME_FILE="$outcome_repo/.git/outcome-$session_id" \
+        "$ROOT/session-outcome.sh" "$outcome" "$*"
+}
+
+if call_outcome no-research NOOP "Plain prose says research happened" >"$TMP/no-research.out" 2>&1; then
+    fail "NOOP without current-session research was accepted"
+fi
+assert_contains "$TMP/no-research.out" 'NOOP requires bounded outward research in the current session.'
+assert_contains "$TMP/no-research.out" 'Use websearch/webfetch or equivalent, then record it with commitment-log research'
+[[ ! -e "$outcome_repo/.git/outcome-no-research" ]] || fail "rejected NOOP created an outcome marker"
+! rg -F '"session_id":"no-research","type":"session_end"' "$outcome_log" >/dev/null ||
+    fail "rejected NOOP appended a session_end"
+
+printf '%s\n' \
+    '{"session_id":"missing-source","type":"research","summary":"Incomplete","result":"Observed"}' \
+    '{"session_id":"missing-result","type":"research","summary":"Incomplete","source":"https://example.invalid/incomplete"}' \
+    '{"session_id":"missing-summary","type":"research","source":"https://example.invalid/incomplete","result":"Observed"}' \
+    >>"$outcome_log"
+for session_id in missing-source missing-result missing-summary; do
+    if call_outcome "$session_id" NOOP "Incomplete research fixture" >"$TMP/$session_id.out" 2>&1; then
+        fail "NOOP accepted research missing a required field: $session_id"
+    fi
+done
+
+for fields in \
+    'result=Observed' \
+    'source=https://example.invalid/research' \
+    'source= result=Observed' \
+    'source=https://example.invalid/research result='; do
+    read -r first_field second_field <<<"$fields"
+    args=(research "Incomplete research")
+    [[ -n ${first_field:-} ]] && args+=("$first_field")
+    [[ -n ${second_field:-} ]] && args+=("$second_field")
+    if COMMITMENT_ROOT="$outcome_repo" COMMITMENT_SESSION_ID=invalid-research \
+        "$ROOT/commitment-log.sh" "${args[@]}" >"$TMP/research-fields.out" 2>&1; then
+        fail "research event without non-empty source and result was accepted"
+    fi
+done
+
+research_source=$'https://example.invalid/research?q="quoted"\\tail'
+research_result=$'Observed a repeated workflow; no actionable candidate\nwithin the bounded pass'
+COMMITMENT_ROOT="$outcome_repo" COMMITMENT_SESSION_ID=accepted-noop \
+    "$ROOT/commitment-log.sh" research "Inspected synthetic high-signal source" \
+    "source=$research_source" "result=$research_result"
+call_outcome accepted-noop NOOP "No candidate survived bounded research"
+jq -eRn --arg source "$research_source" --arg result "$research_result" '
+    [inputs | fromjson? | select(
+        .session_id == "accepted-noop" and .type == "research" and
+        .source == $source and .result == $result
+    )] | length == 1
+' <"$outcome_log" >/dev/null || fail "research JSON escaping or session ID was not preserved"
+
+for number in 1 2; do
+    COMMITMENT_ROOT="$outcome_repo" COMMITMENT_SESSION_ID=multiple-research \
+        "$ROOT/commitment-log.sh" research "Inspected source $number" \
+        "source=https://example.invalid/$number" "result=Observed result $number"
+done
+call_outcome multiple-research NOOP "Multiple sources yielded no candidate"
+jq -eRn '[inputs | fromjson? | select(.session_id == "multiple-research" and .type == "research")] | length == 2' \
+    <"$outcome_log" >/dev/null ||
+    fail "multiple valid research events were not preserved"
+
+for outcome in COMMITTED_CHANGE CHECKPOINT_UNFINISHED FAILED; do
+    call_outcome "no-research-${outcome,,}" "$outcome" "$outcome without research"
+done
+
+cmp -n "$outcome_prefix_size" "$TMP/outcome-prefix" "$outcome_log" >/dev/null ||
+    fail "outcome qualification changed malformed or legacy runlog bytes"
+[[ ! -s "$outcome_repo/memory/.unexpected" && ! -s "$outcome_repo/queue/.unexpected" ]] ||
+    fail "outcome qualification changed memory or queue behavior"
 ! rg -n 'GITHUB|TOKEN' "$ROOT/commitment-log.sh" >/dev/null || fail "runlog helper references GitHub credentials"
 
 references=$(rg -l 'runlog\.jsonl' "$ROOT" --glob '!.git/**' | sed "s|$ROOT/||" | sort)
 expected=$(printf '%s\n' AGENTS.md README.md agent-git.sh commitment-log.sh config.example.env memory/README.md prompt.txt session-outcome.sh tests/git-boundary.sh tests/memory-queue-noop.sh tests/runlog.sh tests/session-regressions.sh | sort)
 [[ $references == "$expected" ]] || fail "run-log machinery exists outside the log, instructions, documentation, and focused test"
 
-printf 'ok - append-only runlog, evidence fields, outcomes, and historical compatibility\n'
+printf 'ok - append-only runlog, research-gated NOOP, other outcomes, and historical compatibility\n'

@@ -80,6 +80,7 @@ cat >"$TMP/fakebin/podman" <<'EOF'
 repo=''
 helper=''
 outcome_helper=''
+log_helper=''
 transfer=''
 branch=''
 git_name=''
@@ -99,6 +100,7 @@ for argument do
             *:/workspace/repo:rw,Z) repo=${argument%:/workspace/repo:rw,Z} ;;
             *:/usr/local/libexec/commitment-agent-git:ro,Z) helper=${argument%:/usr/local/libexec/commitment-agent-git:ro,Z} ;;
             *:/usr/local/bin/commitment-outcome:ro,Z) outcome_helper=${argument%:/usr/local/bin/commitment-outcome:ro,Z} ;;
+            *:/usr/local/bin/commitment-log:ro,Z) log_helper=${argument%:/usr/local/bin/commitment-log:ro,Z} ;;
             *:/transfer/upstream.bundle:ro,Z) transfer=${argument%:/transfer/upstream.bundle:ro,Z} ;;
             *:/transfer:rw,Z) transfer=${argument%:/transfer:rw,Z} ;;
             *:/workspace/commitment:rw,Z) commitment=${argument%:/workspace/commitment:rw,Z} ;;
@@ -154,6 +156,11 @@ fi
 if [ "${FAKE_SKIP_OUTCOME_HELPER:-0}" != 1 ] && [ -n "${commitment:-}" ] && [ -n "$outcome_helper" ]; then
     (
         cd "$commitment"
+        if [ "${FAKE_SESSION_OUTCOME:-CHECKPOINT_UNFINISHED}" = NOOP ]; then
+            COMMITMENT_SESSION_ID=$session_id COMMITMENT_ROOT="$commitment" \
+                "$log_helper" research "Inspected a synthetic integration source" \
+                source=https://example.invalid/research result="No candidate found"
+        fi
         COMMITMENT_SESSION_ID=$session_id \
             COMMITMENT_ROOT="$commitment" \
             COMMITMENT_OUTCOME_FILE="$commitment/.git/commitment-session-outcome" \

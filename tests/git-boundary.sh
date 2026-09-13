@@ -111,14 +111,15 @@ podman run --rm --network=none --security-opt=no-new-privileges \
     -w /workspace/commitment "$IMAGE" \
     sh -c '
         test -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${COMMITMENT_GITHUB_TOKEN_FILE:-}${LAB_GITHUB_TOKEN_FILE:-}"
-        commitment-log observation "Bounded research found nothing worth retaining" source=https://example.invalid/research
+        commitment-log research "Inspected a synthetic boundary research source" source=https://example.invalid/research result="No candidate worth retaining"
         commitment-outcome NOOP "No substantive boundary change was justified"
     '
 tail -n 2 "$TMP/commitment/runlog.jsonl" | jq -e -s '
     length == 2 and
     all(.session_id == "boundary-noop") and
-    .[0].type == "observation" and
+    .[0].type == "research" and
     .[0].source == "https://example.invalid/research" and
+    .[0].result == "No candidate worth retaining" and
     .[1].type == "session_end" and
     .[1].outcome == "NOOP"
 ' >/dev/null || fail "trusted helpers did not append valid session records across the container boundary"

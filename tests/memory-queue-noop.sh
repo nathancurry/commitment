@@ -65,6 +65,13 @@ record_outcome() {
     )
 }
 
+record_research() {
+    local repo=$1 session_id=$2 source=${3:-https://example.invalid/research}
+    COMMITMENT_ROOT="$repo" COMMITMENT_SESSION_ID="$session_id" \
+        "$ROOT/commitment-log.sh" research "Inspected a synthetic research fixture" \
+        "source=$source" result="No sufficiently supported candidate found"
+}
+
 read_outcome() {
     local repo=$1 session_id=$2
     AGENT_REPO="$repo" AGENT_BRANCH=main AGENT_REPO_KIND=commitment \
@@ -84,6 +91,7 @@ repo_a="$TMP/a"
 new_repo "$repo_a"
 base_a=$(git -C "$repo_a" rev-parse HEAD)
 begin_session "$repo_a" scenario-a
+record_research "$repo_a" scenario-a https://example.invalid/release
 cat >"$repo_a/memory/public-release-note.md" <<'EOF'
 ---
 title: Public release note may become relevant
@@ -180,6 +188,7 @@ repo_bad_noop="$TMP/bad-noop"
 new_repo "$repo_bad_noop"
 base_bad_noop=$(git -C "$repo_bad_noop" rev-parse HEAD)
 begin_session "$repo_bad_noop" bad-noop
+record_research "$repo_bad_noop" bad-noop
 printf '%s\n' substantive >"$repo_bad_noop/unjustified.txt"
 record_outcome "$repo_bad_noop" bad-noop NOOP "Incorrect NOOP fixture"
 if finalize "$repo_bad_noop" "$base_bad_noop" NOOP >"$TMP/bad-noop.out" 2>&1; then
@@ -195,6 +204,7 @@ git -C "$repo_format" add -A
 git -C "$repo_format" commit -m format >/dev/null
 base_format=$(git -C "$repo_format" rev-parse HEAD)
 begin_session "$repo_format" format-doc
+record_research "$repo_format" format-doc
 printf '%s\n' changed >"$repo_format/memory/README.md"
 record_outcome "$repo_format" format-doc NOOP "Incorrect format documentation NOOP"
 if finalize "$repo_format" "$base_format" NOOP >"$TMP/format.out" 2>&1; then
@@ -230,6 +240,7 @@ git -C "$repo_c" add -A
 git -C "$repo_c" commit -m candidate >/dev/null
 base_c=$(git -C "$repo_c" rev-parse HEAD)
 begin_session "$repo_c" scenario-c
+record_research "$repo_c" scenario-c
 sed -i 's/status: candidate/status: rejected/' "$repo_c/queue/speculative-helper.md"
 sed -i 's/updated: 2026-09-13/updated: 2026-09-14/' "$repo_c/queue/speculative-helper.md"
 printf '%s\n' 'No demonstrated user or reliability need was found.' >>"$repo_c/queue/speculative-helper.md"

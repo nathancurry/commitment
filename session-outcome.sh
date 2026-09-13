@@ -18,6 +18,22 @@ root=${COMMITMENT_ROOT:-$(git rev-parse --show-toplevel)}
 marker=${COMMITMENT_OUTCOME_FILE:-"$root/.git/commitment-session-outcome"}
 [[ ! -e $marker ]] || die "an outcome is already recorded for this session"
 
+if [[ $outcome == NOOP ]] && ! jq -eRn --arg session_id "$COMMITMENT_SESSION_ID" '
+    [inputs
+     | (fromjson? // empty)
+     | select(
+         type == "object" and
+         .session_id == $session_id and
+         .type == "research" and
+         (.summary | type == "string" and length > 0) and
+         (.source | type == "string" and length > 0) and
+         (.result | type == "string" and length > 0)
+       )]
+    | length > 0
+' <"$root/runlog.jsonl" >/dev/null; then
+    die $'NOOP requires bounded outward research in the current session.\nUse websearch/webfetch or equivalent, then record it with commitment-log research SUMMARY source=SOURCE result=RESULT.'
+fi
+
 record=$(jq -cn \
     --arg ts "$(date --iso-8601=seconds)" \
     --arg session_id "$COMMITMENT_SESSION_ID" \
