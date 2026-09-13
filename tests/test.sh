@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+pass() { printf 'ok - %s\n' "$*"; }
+assert_file() { [[ -e $1 ]] || fail "missing $1"; }
+assert_contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain $2"; }
+
+for script in "$ROOT"/*.sh "$ROOT"/tests/*.sh; do bash -n "$script"; done
+[[ $(<"$ROOT/VERSION") == 0.0.1 ]] || fail "VERSION is not 0.0.1"
+assert_contains "$ROOT/Containerfile" 'OPENCODE_VERSION=1.18.30'
+assert_contains "$ROOT/AGENTS.md" 'starts at `0.0.1`'
+assert_contains "$ROOT/AGENTS.md" "configured primary branch by default"
+shared_token_key=GITHUB_TOKEN
+shared_token_key+=_FILE
+commitment_remote_key=COMMITMENT_
+commitment_remote_key+=REMOTE
+lab_remote_key=LAB_
+lab_remote_key+=REMOTE
+for stale_key in "$shared_token_key" "$commitment_remote_key" "$lab_remote_key"; do
+    if rg -n "(^|[^A-Z_])${stale_key}([^A-Z_]|$)" "$ROOT" --glob '!.git/**' >/dev/null; then
+        fail "stale configuration remains: $stale_key"
+    fi
+done
+pass "shell syntax, pinned version, and version policy"
+
+make_repo() {
+    local name=$1
+    git init --bare "$TMP/$name.remote" >/dev/null
+    git init -b main "$TMP/$name" >/dev/null
+    git -C "$TMP/$name" config user.name Test
+    git -C "$TMP/$name" config user.email test@example.invalid
+    printf '%s\n' "$name" >"$TMP/$name/README.md"
+    git -C "$TMP/$name" add README.md
+    git -C "$TMP/$name" commit -m initial >/dev/null
+    git -C "$TMP/$name" remote add origin "$TMP/$name.remote"
+    git -C "$TMP/$name" push -u origin main >/dev/null
+}
+make_repo commitment
+make_repo lab
+
+REAL_GIT=$(command -v git)
+export REAL_GIT
+mkdir -p "$TMP/fakebin" "$TMP/home"
+cat >"$TMP/fakebin/systemctl" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+cat >"$TMP/fakebin/podman" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = info ] && { printf '%s\n' true; exit 0; }
+[ "${1:-}" = rm ] && exit 0
+repo=''
+helper=''
+transfer=''
+branch=''
+git_name=''
+git_email=''
+exit_status=''
+operation=''
+previous=''
+for argument do
+    if [ "$previous" = -v ]; then
+        case $argument in
+            *:/workspace/repo:rw,Z) repo=${argument%:/workspace/repo:rw,Z} ;;
+            *:/usr/local/libexec/commitment-agent-git:ro,Z) helper=${argument%:/usr/local/libexec/commitment-agent-git:ro,Z} ;;
+            *:/transfer/upstream.bundle:ro,Z) transfer=${argument%:/transfer/upstream.bundle:ro,Z} ;;
+            *:/transfer:rw,Z) transfer=${argument%:/transfer:rw,Z} ;;
+            *:/workspace/commitment:rw,Z) commitment=${argument%:/workspace/commitment:rw,Z} ;;
+            *:/workspace/commitment-lab:rw,Z) lab=${argument%:/workspace/commitment-lab:rw,Z} ;;
+        esac
+    elif [ "$previous" = -e ]; then
+        case $argument in
+            AGENT_BRANCH=*) branch=${argument#AGENT_BRANCH=} ;;
+            AGENT_GIT_NAME=*) git_name=${argument#AGENT_GIT_NAME=} ;;
+            AGENT_GIT_EMAIL=*) git_email=${argument#AGENT_GIT_EMAIL=} ;;
+            AGENT_EXIT_STATUS=*) exit_status=${argument#AGENT_EXIT_STATUS=} ;;
+        esac
+    fi
+    case $argument in sync|checkpoint|export) operation=$argument ;; esac
+    previous=$argument
+done
+if [ -n "${FAKE_PODMAN_ALL_ARGS:-}" ]; then
+    printf '%s\n' "$@" >>"$FAKE_PODMAN_ALL_ARGS"
+fi
+if [ -n "$helper" ]; then
+    [ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${COMMITMENT_GITHUB_TOKEN:-}${COMMITMENT_GITHUB_TOKEN_FILE:-}${LAB_GITHUB_TOKEN_FILE:-}" ] || exit 90
+    export AGENT_REPO=$repo AGENT_BRANCH=$branch AGENT_GIT_NAME=$git_name AGENT_GIT_EMAIL=$git_email AGENT_EXIT_STATUS=$exit_status
+    case $operation in
+        sync) exec "$helper" sync "$transfer" ;;
+        checkpoint) exec "$helper" checkpoint ;;
+        export) exec "$helper" export "$transfer/agent.bundle" ;;
+    esac
+    exit 2
+fi
+printf '%s\n' "$@" >"$FAKE_PODMAN_ARGS"
+[ -n "${commitment:-}" ] && printf '%s\n' agent-change >>"$commitment/agent.txt"
+if [ -n "${lab:-}" ]; then
+    printf '%s\n' '#!/bin/sh' 'printf "%s\n" first' >"$lab/small-program"
+    chmod +x "$lab/small-program"
+    test "$("$lab/small-program")" = first
+    sed -i s/first/revised/ "$lab/small-program"
+    test "$("$lab/small-program")" = revised
+fi
+if [ "${FAKE_BREAK_REMOTE:-0}" = 1 ]; then
+    mv "$FAKE_UPSTREAM" "$FAKE_UPSTREAM.off"
+fi
+exit 0
+EOF
+chmod +x "$TMP/fakebin/systemctl" "$TMP/fakebin/podman"
+
+export HOME="$TMP/home"
+export XDG_CONFIG_HOME="$TMP/config"
+export XDG_DATA_HOME="$TMP/data"
+export PATH="$TMP/fakebin:$PATH"
+export FAKE_PODMAN_ARGS="$TMP/podman.args"
+export FAKE_PODMAN_ALL_ARGS="$TMP/podman-all.args"
+export FAKE_UPSTREAM="$TMP/commitment.remote"
+COMMITMENT_SKIP_BUILD=1 "$ROOT/install.sh" >/dev/null
+CONFIG="$XDG_CONFIG_HOME/commitment/config.env"
+sed -i \
+    -e "s|^COMMITMENT_REPO=.*|COMMITMENT_REPO=$TMP/commitment|" \
+    -e "s|^COMMITMENT_UPSTREAM_URL=.*|COMMITMENT_UPSTREAM_URL=$TMP/commitment.remote|" \
+    -e "s|^LAB_REPO=.*|LAB_REPO=$TMP/lab|" \
+    -e "s|^LAB_UPSTREAM_URL=.*|LAB_UPSTREAM_URL=$TMP/lab.remote|" \
+    "$CONFIG"
+assert_file "$HOME/.local/bin/commitment"
+assert_file "$XDG_CONFIG_HOME/systemd/user/commitment.timer"
+assert_contains "$XDG_CONFIG_HOME/systemd/user/commitment.timer" 'OnCalendar=daily'
+pass "disposable install"
+
+printf '%s\n' preserve >"$XDG_CONFIG_HOME/commitment/preserved"
+printf '%s\n' state >"$XDG_DATA_HOME/commitment/opencode-data/preserved"
+COMMITMENT_SKIP_BUILD=1 "$ROOT/install.sh" >/dev/null
+assert_file "$XDG_CONFIG_HOME/commitment/preserved"
+assert_file "$XDG_DATA_HOME/commitment/opencode-data/preserved"
+pass "reinstall preserves configuration and continuity"
+
+"$HOME/.local/bin/commitment" >/dev/null
+assert_contains "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" 'http://host.containers.internal:11434/v1'
+assert_contains "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" 'ollama/gpt-oss:20b'
+if command -v jq >/dev/null; then
+    jq -e '.model == "ollama/gpt-oss:20b" and .provider.ollama.options.baseURL == "http://host.containers.internal:11434/v1" and .permission.question == "deny"' \
+        "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" >/dev/null || fail "generated OpenCode JSON is invalid"
+fi
+[[ $(git -C "$TMP/commitment" log -1 --format=%s) == checkpoint:* ]] || fail "commitment checkpoint missing"
+[[ $(git -C "$TMP/lab" log -1 --format=%s) == checkpoint:* ]] || fail "lab checkpoint missing"
+[[ $("$TMP/lab/small-program") == revised ]] || fail "program revision did not survive"
+mount_count=$(grep -cE ':/workspace/commitment(-lab)?:rw,Z|:/home/commitment/\.config/opencode/opencode.json:ro,Z|:/home/commitment/\.local/share/opencode:rw,Z' "$FAKE_PODMAN_ARGS")
+[[ $mount_count -eq 4 ]] || fail "expected exactly four intended mounts"
+! grep -Fq "$HOME:" "$FAKE_PODMAN_ARGS" || fail "home directory was mounted"
+! grep -Fq 'GITHUB_TOKEN' "$FAKE_PODMAN_ARGS" || fail "GitHub credential was passed"
+pass "configuration generation, both workspaces, checkpoints, program revision, and mount boundary"
+
+exec 8>"$XDG_DATA_HOME/commitment/run.lock"
+flock -n 8
+if "$HOME/.local/bin/commitment" >"$TMP/overlap.out" 2>&1; then fail "overlap was allowed"; fi
+assert_contains "$TMP/overlap.out" 'another run is active'
+flock -u 8
+pass "overlapping run prevention"
+
+printf '%s\n' dirty >"$TMP/commitment/dirty.txt"
+if "$HOME/.local/bin/commitment" >"$TMP/dirty.out" 2>&1; then fail "dirty start was allowed"; fi
+assert_file "$TMP/commitment/dirty.txt"
+assert_contains "$TMP/dirty.out" 'dirty state preserved'
+git -C "$TMP/commitment" clean -f >/dev/null
+pass "unexpected dirty state preservation"
+
+git -C "$TMP/commitment" remote set-url origin 'https://example:secret@example.invalid/repo.git'
+if "$HOME/.local/bin/commitment" >"$TMP/credential.out" 2>&1; then fail "embedded credential reached container launch"; fi
+assert_contains "$TMP/credential.out" 'credential-bearing remote URL is forbidden'
+git -C "$TMP/commitment" remote set-url origin "$TMP/commitment.remote"
+pass "embedded repository credential rejection"
+
+sed -i 's/^PUBLISH_MODE=.*/PUBLISH_MODE=push/' "$CONFIG"
+"$HOME/.local/bin/commitment" >/dev/null
+grep -Fxq -- '--continue' "$FAKE_PODMAN_ARGS" || fail "native session continuation was not requested"
+local_head=$(git -C "$TMP/lab" rev-parse HEAD)
+remote_head=$(git --git-dir="$TMP/lab.remote" rev-parse refs/heads/main)
+[[ $local_head == "$remote_head" ]] || fail "push mode did not publish lab"
+pass "trusted local publishing"
+
+COMMITMENT_FAKE_TOKEN=commitment-fake-token
+LAB_FAKE_TOKEN=lab-fake-token
+export FAKE_GIT_AUTH_LOG="$TMP/git-auth.log"
+export FAKE_GH_LOG="$TMP/gh.log"
+printf '%s\n' "$COMMITMENT_FAKE_TOKEN" >"$XDG_CONFIG_HOME/commitment/commitment-github-token"
+printf '%s\n' "$LAB_FAKE_TOKEN" >"$XDG_CONFIG_HOME/commitment/lab-github-token"
+chmod 600 "$XDG_CONFIG_HOME/commitment/commitment-github-token" "$XDG_CONFIG_HOME/commitment/lab-github-token"
+cat >"$TMP/fakebin/git" <<'EOF'
+#!/bin/sh
+case " $* " in
+    *' fetch '*|*' push '*)
+        if [ -n "${GIT_ASKPASS:-}" ]; then
+            printf '%s|%s\n' "$("$GIT_ASKPASS" Password)" "$*" >>"$FAKE_GIT_AUTH_LOG"
+        fi
+        ;;
+esac
+exec "$REAL_GIT" "$@"
+EOF
+cat >"$TMP/fakebin/gh" <<'EOF'
+#!/bin/sh
+printf '%s|%s\n' "${GH_TOKEN:-}" "$*" >>"$FAKE_GH_LOG"
+EOF
+chmod +x "$TMP/fakebin/git" "$TMP/fakebin/gh"
+
+"$REAL_GIT" --git-dir="$XDG_DATA_HOME/commitment/trusted/commitment.git" config \
+    url."$TMP/commitment.remote".insteadOf https://github.com/example/commitment.git
+"$REAL_GIT" --git-dir="$XDG_DATA_HOME/commitment/trusted/lab.git" config \
+    url."$TMP/lab.remote".insteadOf https://github.com/example/commitment-lab.git
+sed -i \
+    -e 's|^COMMITMENT_UPSTREAM_URL=.*|COMMITMENT_UPSTREAM_URL=https://github.com/example/commitment.git|' \
+    -e 's|^LAB_UPSTREAM_URL=.*|LAB_UPSTREAM_URL=https://github.com/example/commitment-lab.git|' \
+    "$CONFIG"
+PUBLISHER="$HOME/.local/libexec/commitment/publish.sh"
+COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" sync commitment
+COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" sync lab
+COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" push commitment
+COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" push lab
+grep -Fq "$COMMITMENT_FAKE_TOKEN|--git-dir=$XDG_DATA_HOME/commitment/trusted/commitment.git fetch" "$FAKE_GIT_AUTH_LOG" ||
+    fail "commitment fetch did not use its token"
+grep -Fq "$COMMITMENT_FAKE_TOKEN|--git-dir=$XDG_DATA_HOME/commitment/trusted/commitment.git push" "$FAKE_GIT_AUTH_LOG" ||
+    fail "commitment push did not use its token"
+grep -Fq "$LAB_FAKE_TOKEN|--git-dir=$XDG_DATA_HOME/commitment/trusted/lab.git fetch" "$FAKE_GIT_AUTH_LOG" ||
+    fail "lab fetch did not use its token"
+grep -Fq "$LAB_FAKE_TOKEN|--git-dir=$XDG_DATA_HOME/commitment/trusted/lab.git push" "$FAKE_GIT_AUTH_LOG" ||
+    fail "lab push did not use its token"
+! grep -F "$COMMITMENT_FAKE_TOKEN|" "$FAKE_GIT_AUTH_LOG" | grep -Fq '/trusted/lab.git' || fail "commitment token reached lab Git"
+! grep -F "$LAB_FAKE_TOKEN|" "$FAKE_GIT_AUTH_LOG" | grep -Fq '/trusted/commitment.git' || fail "lab token reached commitment Git"
+
+printf '%s\n' body >"$TMP/issue-body"
+COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" issue-list commitment >/dev/null
+COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" issue-list lab >/dev/null
+COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" issue-create commitment title "$TMP/issue-body" >/dev/null
+COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" issue-create lab title "$TMP/issue-body" >/dev/null
+COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" issue-comment commitment 1 "$TMP/issue-body" >/dev/null
+COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" issue-comment lab 1 "$TMP/issue-body" >/dev/null
+COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" issue-close commitment 1 >/dev/null
+COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" issue-close lab 1 >/dev/null
+[[ $(grep -Fc "$COMMITMENT_FAKE_TOKEN|" "$FAKE_GH_LOG") -eq 4 ]] || fail "commitment issue operations used the wrong token"
+[[ $(grep -Fc "$LAB_FAKE_TOKEN|" "$FAKE_GH_LOG") -eq 4 ]] || fail "lab issue operations used the wrong token"
+! grep -F "$COMMITMENT_FAKE_TOKEN|" "$FAKE_GH_LOG" | grep -Fq 'example/commitment-lab' || fail "commitment token reached lab issues"
+! grep -F "$LAB_FAKE_TOKEN|" "$FAKE_GH_LOG" | grep -Fq 'example/commitment ' || fail "lab token reached commitment issues"
+
+sed -i 's|^COMMITMENT_GITHUB_TOKEN_FILE=.*|COMMITMENT_GITHUB_TOKEN_FILE=|' "$CONFIG"
+if COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" issue-list commitment >"$TMP/no-commitment-token.out" 2>&1; then
+    fail "lab token substituted for missing commitment token"
+fi
+assert_contains "$TMP/no-commitment-token.out" 'GitHub token is not configured for commitment; set COMMITMENT_GITHUB_TOKEN_FILE'
+sed -i "s|^COMMITMENT_GITHUB_TOKEN_FILE=.*|COMMITMENT_GITHUB_TOKEN_FILE=$XDG_CONFIG_HOME/commitment/commitment-github-token|" "$CONFIG"
+sed -i 's|^LAB_GITHUB_TOKEN_FILE=.*|LAB_GITHUB_TOKEN_FILE=|' "$CONFIG"
+if COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" issue-list lab >"$TMP/no-lab-token.out" 2>&1; then
+    fail "commitment token substituted for missing lab token"
+fi
+assert_contains "$TMP/no-lab-token.out" 'GitHub token is not configured for lab; set LAB_GITHUB_TOKEN_FILE'
+sed -i "s|^LAB_GITHUB_TOKEN_FILE=.*|LAB_GITHUB_TOKEN_FILE=$XDG_CONFIG_HOME/commitment/lab-github-token|" "$CONFIG"
+! rg -F "$COMMITMENT_FAKE_TOKEN" "$TMP/commitment" "$TMP/lab" >/dev/null || fail "commitment token entered agent repositories"
+! rg -F "$LAB_FAKE_TOKEN" "$TMP/commitment" "$TMP/lab" >/dev/null || fail "lab token entered agent repositories"
+! grep -Fq "$COMMITMENT_FAKE_TOKEN" "$FAKE_PODMAN_ARGS" || fail "commitment token entered creative container arguments"
+! grep -Fq "$LAB_FAKE_TOKEN" "$FAKE_PODMAN_ARGS" || fail "lab token entered creative container arguments"
+! grep -Eq 'COMMITMENT_GITHUB_TOKEN|LAB_GITHUB_TOKEN|commitment-github-token|lab-github-token' "$FAKE_PODMAN_ALL_ARGS" ||
+    fail "GitHub token configuration entered agent container arguments"
+printf '%s\n' agent-mounted-fake-token >"$XDG_DATA_HOME/commitment/opencode-data/token"
+chmod 600 "$XDG_DATA_HOME/commitment/opencode-data/token"
+sed -i "s|^COMMITMENT_GITHUB_TOKEN_FILE=.*|COMMITMENT_GITHUB_TOKEN_FILE=$XDG_DATA_HOME/commitment/opencode-data/token|" "$CONFIG"
+if COMMITMENT_STATE_DIR="$XDG_DATA_HOME/commitment" "$PUBLISHER" checkpoint commitment >"$TMP/mounted-token.out" 2>&1; then
+    fail "token file in an agent-mounted path was accepted"
+fi
+assert_contains "$TMP/mounted-token.out" 'COMMITMENT_GITHUB_TOKEN_FILE must be outside agent-mounted paths'
+sed -i "s|^COMMITMENT_GITHUB_TOKEN_FILE=.*|COMMITMENT_GITHUB_TOKEN_FILE=$XDG_CONFIG_HOME/commitment/commitment-github-token|" "$CONFIG"
+rm -f "$XDG_DATA_HOME/commitment/opencode-data/token"
+pass "repository-specific GitHub tokens route across fetch, push, and issue operations without crossing agent boundaries"
+
+sed -i \
+    -e "s|^COMMITMENT_UPSTREAM_URL=.*|COMMITMENT_UPSTREAM_URL=$TMP/commitment.remote|" \
+    -e "s|^LAB_UPSTREAM_URL=.*|LAB_UPSTREAM_URL=$TMP/lab.remote|" \
+    "$CONFIG"
+
+old_head=$(git -C "$TMP/commitment" rev-parse HEAD)
+if FAKE_BREAK_REMOTE=1 "$HOME/.local/bin/commitment" >"$TMP/push-fail.out" 2>&1; then fail "push failure reported success"; fi
+new_head=$(git -C "$TMP/commitment" rev-parse HEAD)
+[[ $new_head != "$old_head" ]] || fail "local checkpoint was not preserved after push failure"
+assert_contains "$TMP/push-fail.out" 'push failed; local commits preserved'
+mv "$TMP/commitment.remote.off" "$TMP/commitment.remote"
+pass "accurate push failure with local preservation"
+
+"$ROOT/uninstall.sh" >/dev/null
+[[ ! -e "$HOME/.local/bin/commitment" ]] || fail "launcher survived uninstall"
+[[ ! -e "$XDG_CONFIG_HOME/systemd/user/commitment.timer" ]] || fail "timer survived uninstall"
+assert_file "$XDG_CONFIG_HOME/commitment/config.env"
+assert_file "$XDG_DATA_HOME/commitment/opencode-data/preserved"
+assert_file "$TMP/lab/small-program"
+pass "uninstall preserves user and workspace data"
+
+if command -v systemd-analyze >/dev/null; then
+    unit_tmp="$TMP/units"
+    mkdir -p "$unit_tmp"
+    cp "$ROOT/systemd/commitment.service.in" "$unit_tmp/commitment.service"
+    sed 's/@SCHEDULE@/daily/' "$ROOT/systemd/commitment.timer.in" >"$unit_tmp/commitment.timer"
+    if systemd-analyze --user verify "$unit_tmp/commitment.service" "$unit_tmp/commitment.timer"; then
+        pass "generated systemd units validate"
+    else
+        printf 'skip - systemd user verification unavailable in this sandbox\n'
+    fi
+else
+    printf 'skip - systemd-analyze unavailable\n'
+fi

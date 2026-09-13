@@ -1,0 +1,9 @@
+[Unit]
+Description=Commitment autonomous development session
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/commitment
+TimeoutStartSec=infinity
