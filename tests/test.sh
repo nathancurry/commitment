@@ -11,14 +11,20 @@ assert_file() { [[ -e $1 ]] || fail "missing $1"; }
 assert_contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain $2"; }
 
 for script in "$ROOT"/*.sh "$ROOT"/tests/*.sh; do bash -n "$script"; done
-[[ $(<"$ROOT/VERSION") == 0.1.0 ]] || fail "VERSION is not 0.1.0"
+[[ $(<"$ROOT/VERSION") == 0.1.1 ]] || fail "VERSION changed unexpectedly"
 assert_contains "$ROOT/Containerfile" 'OPENCODE_VERSION=1.18.30'
 assert_contains "$ROOT/AGENTS.md" 'starts at `0.0.1`'
 assert_contains "$ROOT/AGENTS.md" "configured primary branch by default"
+assert_contains "$ROOT/AGENTS.md" 'Multiple commits may form one update'
+assert_contains "$ROOT/AGENTS.md" 'VERSION does not change merely because a session occurred'
+assert_contains "$ROOT/AGENTS.md" 'Before calling a coherent Commitment update complete'
+assert_contains "$ROOT/AGENTS.md" 'include the appropriate VERSION bump'
 grep -Fxq 'OLLAMA_ENDPOINT=http://host.containers.internal:11434' "$ROOT/config.example.env" || fail "default Ollama endpoint changed"
 grep -Fxq 'OLLAMA_MODEL=gpt-oss:20b-32k' "$ROOT/config.example.env" || fail "default Ollama model is incorrect"
 grep -Fxq 'OLLAMA_CONTEXT=32768' "$ROOT/config.example.env" || fail "default Ollama context is incorrect"
 grep -Fxq 'OLLAMA_OUTPUT=8192' "$ROOT/config.example.env" || fail "default Ollama output limit is incorrect"
+grep -Fxq 'GIT_AUTHOR_NAME=Commitment' "$ROOT/config.example.env" || fail "default Git author name is incorrect"
+grep -Fxq 'GIT_AUTHOR_EMAIL=commitment@localhost' "$ROOT/config.example.env" || fail "default Git author email is incorrect"
 "$ROOT/tests/runlog.sh"
 shared_token_key=GITHUB_TOKEN
 shared_token_key+=_FILE
@@ -132,6 +138,8 @@ sed -i \
     -e "s|^COMMITMENT_UPSTREAM_URL=.*|COMMITMENT_UPSTREAM_URL=$TMP/commitment.remote|" \
     -e "s|^LAB_REPO=.*|LAB_REPO=$TMP/lab|" \
     -e "s|^LAB_UPSTREAM_URL=.*|LAB_UPSTREAM_URL=$TMP/lab.remote|" \
+    -e "s|^GIT_AUTHOR_NAME=.*|GIT_AUTHOR_NAME='Creative Author'|" \
+    -e 's|^GIT_AUTHOR_EMAIL=.*|GIT_AUTHOR_EMAIL=creative@example.invalid|' \
     "$CONFIG"
 assert_file "$HOME/.local/bin/commitment"
 assert_file "$XDG_CONFIG_HOME/systemd/user/commitment.timer"
@@ -146,6 +154,18 @@ assert_file "$XDG_DATA_HOME/commitment/opencode-data/preserved"
 pass "reinstall preserves configuration and continuity"
 
 "$HOME/.local/bin/commitment" >/dev/null
+session_id=$(sed -n 's/^COMMITMENT_SESSION_ID=//p' "$FAKE_PODMAN_ARGS")
+[[ $(printf '%s\n' "$session_id" | wc -l) -eq 1 && $session_id =~ ^[0-9]{8}T[0-9]{6}[+-][0-9]{4}-[0-9]+$ ]] ||
+    fail "launcher did not generate exactly one recognizable session ID"
+grep -Fxq 'GIT_AUTHOR_NAME=Creative Author' "$FAKE_PODMAN_ARGS" || fail "Git author name was not passed to creative container"
+grep -Fxq 'GIT_AUTHOR_EMAIL=creative@example.invalid' "$FAKE_PODMAN_ARGS" || fail "Git author email was not passed to creative container"
+grep -Fxq 'GIT_COMMITTER_NAME=Creative Author' "$FAKE_PODMAN_ARGS" || fail "Git committer name did not default to author"
+grep -Fxq 'GIT_COMMITTER_EMAIL=creative@example.invalid' "$FAKE_PODMAN_ARGS" || fail "Git committer email did not default to author"
+first_session_id=$session_id
+"$HOME/.local/bin/commitment" >/dev/null
+second_session_id=$(sed -n 's/^COMMITMENT_SESSION_ID=//p' "$FAKE_PODMAN_ARGS")
+[[ -n $second_session_id && $second_session_id != "$first_session_id" ]] || fail "sequential runs reused a session ID"
+pass "per-run session ID and creative Git identity environment"
 assert_contains "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" 'http://host.containers.internal:11434/v1'
 assert_contains "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" 'ollama/gpt-oss:20b-32k'
 jq -e '

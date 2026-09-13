@@ -23,6 +23,8 @@ for repo in commitment lab; do
     printf '%s\n' initial >"$TMP/$repo/README.md"
     git -C "$TMP/$repo" add README.md
     git -C "$TMP/$repo" commit -m initial >/dev/null
+    git -C "$TMP/$repo" config --unset user.name
+    git -C "$TMP/$repo" config --unset user.email
 done
 mkdir -p "$TMP/config" "$TMP/state"
 cat >"$TMP/config/opencode.json" <<'EOF'
@@ -70,6 +72,10 @@ podman create --name "$C1" \
     -v "$TMP/lab:/workspace/commitment-lab:rw,Z" \
     -v "$TMP/config/opencode.json:/home/commitment/.config/opencode/opencode.json:ro,Z" \
     -v "$TMP/state:/home/commitment/.local/share/opencode:rw,Z" \
+    --env GIT_AUTHOR_NAME='Creative Author' \
+    --env GIT_AUTHOR_EMAIL=creative@example.invalid \
+    --env GIT_COMMITTER_NAME='Creative Author' \
+    --env GIT_COMMITTER_EMAIL=creative@example.invalid \
     -w /workspace/commitment "$IMAGE" sh -c '
         test -d /workspace/commitment/.git
         test -d /workspace/commitment-lab/.git
@@ -82,6 +88,10 @@ podman create --name "$C1" \
         sed -i s/first/revised/ /workspace/commitment-lab/probe
         test "$(/workspace/commitment-lab/probe)" = revised
         printf changed > /workspace/commitment/from-container
+        git -C /workspace/commitment add from-container
+        git -C /workspace/commitment commit -m creative-commit >/dev/null
+        git -C /workspace/commitment-lab add probe
+        git -C /workspace/commitment-lab commit -m creative-lab-commit >/dev/null
         git -C /workspace/commitment config commitment.agent-writable true
         printf state > /home/commitment/.local/share/opencode/survives
     ' >/dev/null
@@ -97,6 +107,13 @@ done
 ! grep -Fq "$TMP/lab-github-token" <<<"$mounts"
 podman start --attach "$C1" >/dev/null
 podman rm "$C1" >/dev/null
+for repo in commitment lab; do
+    [[ $(git -C "$TMP/$repo" log -1 --format='%an|%ae|%cn|%ce') == \
+        'Creative Author|creative@example.invalid|Creative Author|creative@example.invalid' ]]
+    [[ -z $(git -C "$TMP/$repo" config --local --get user.name || true) ]]
+    [[ -z $(git -C "$TMP/$repo" config --local --get user.email || true) ]]
+done
+printf 'ok - configured author and committer identity applies in both workspaces without local identity configuration\n'
 
 podman run --rm --name "$C2" \
     --network=none \

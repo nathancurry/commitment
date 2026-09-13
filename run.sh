@@ -16,9 +16,11 @@ PUBLISHER=${COMMITMENT_PUBLISHER:-"$RUNTIME_DIR/publish.sh"}
 # shellcheck source=/dev/null
 source "$CONFIG_FILE"
 
-for name in COMMITMENT_REPO COMMITMENT_BRANCH COMMITMENT_UPSTREAM_URL LAB_REPO LAB_BRANCH LAB_UPSTREAM_URL OLLAMA_ENDPOINT OLLAMA_MODEL OLLAMA_CONTEXT OLLAMA_OUTPUT SESSION_TIMEOUT PUBLISH_MODE CONTAINER_IMAGE; do
+for name in COMMITMENT_REPO COMMITMENT_BRANCH COMMITMENT_UPSTREAM_URL LAB_REPO LAB_BRANCH LAB_UPSTREAM_URL OLLAMA_ENDPOINT OLLAMA_MODEL OLLAMA_CONTEXT OLLAMA_OUTPUT SESSION_TIMEOUT PUBLISH_MODE CONTAINER_IMAGE GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL; do
     [[ -n ${!name:-} ]] || die "$name is required in $CONFIG_FILE"
 done
+GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME:-$GIT_AUTHOR_NAME}
+GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}
 [[ $OLLAMA_CONTEXT =~ ^[1-9][0-9]*$ ]] || die "OLLAMA_CONTEXT must be a positive integer"
 [[ $OLLAMA_OUTPUT =~ ^[1-9][0-9]*$ ]] || die "OLLAMA_OUTPUT must be a positive integer"
 [[ $SESSION_TIMEOUT =~ ^[1-9][0-9]*$ ]] || die "SESSION_TIMEOUT must be a positive integer"
@@ -30,6 +32,7 @@ done
 mkdir -p "$STATE_DIR" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data"
 exec 9>"$STATE_DIR/run.lock"
 flock -n 9 || die "another run is active"
+COMMITMENT_SESSION_ID="$(date +'%Y%m%dT%H%M%S%z')-$$"
 
 for value in "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR"; do
     [[ $value == /* ]] || die "repository and state paths must be absolute"
@@ -120,6 +123,11 @@ container_args=(run --rm --name "$container_name"
     -e XDG_CONFIG_HOME=/home/commitment/.config
     -e XDG_DATA_HOME=/home/commitment/.local/share
     -e OPENCODE_ENABLE_EXA=1
+    -e COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID"
+    -e GIT_AUTHOR_NAME="$GIT_AUTHOR_NAME"
+    -e GIT_AUTHOR_EMAIL="$GIT_AUTHOR_EMAIL"
+    -e GIT_COMMITTER_NAME="$GIT_COMMITTER_NAME"
+    -e GIT_COMMITTER_EMAIL="$GIT_COMMITTER_EMAIL"
     "$CONTAINER_IMAGE" opencode run "${continue_args[@]}" --model "ollama/$OLLAMA_MODEL" "$prompt")
 
 note "starting OpenCode session (timeout ${SESSION_TIMEOUT}s)"

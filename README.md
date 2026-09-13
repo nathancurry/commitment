@@ -91,7 +91,7 @@ tail -n 20 runlog.jsonl
 jq -s . runlog.jsonl
 ```
 
-The timer and manual command use the same installed launcher and configuration. `flock` prevents overlap. `SESSION_TIMEOUT` terminates overlong sessions. For scheduled runs after logout, an administrator may run `loginctl enable-linger "$USER"`; the installer never changes lingering or invokes sudo.
+The timer and manual command use the same installed launcher and configuration. The launcher creates one `COMMITMENT_SESSION_ID` per run and passes it, plus the configured Git author identity and matching committer defaults, into the creative container. GitHub credentials remain host-only. `flock` prevents overlap. `SESSION_TIMEOUT` terminates overlong sessions. For scheduled runs after logout, an administrator may run `loginctl enable-linger "$USER"`; the installer never changes lingering or invokes sudo.
 
 Before each run, trusted mirrors fetch each configured branch and permit only no-op, ahead-only, or fast-forward synchronization through bundles. Dirty work, a wrong branch, or divergence stops the run without discarding anything. After any agent exit, intended dirty changes are committed as explicitly unfinished checkpoints inside the uncredentialed container. A failed agent session is never pushed. Completed Commitment work should follow `AGENTS.md` versioning; independent lab work does not bump Commitment's version.
 
