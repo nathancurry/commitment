@@ -1,4 +1,4 @@
-# Commitment 0.0.1
+# Commitment 0.1.1
 
 > Self-authoring commit generator in search of a higher purpose.
 
