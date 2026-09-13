@@ -10,10 +10,16 @@ pass() { printf 'ok - %s\n' "$*"; }
 assert_file() { [[ -e $1 ]] || fail "missing $1"; }
 assert_contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain $2"; }
 
+fixture_current=7.8.9
+fixture_prior=6.7.8
+
 for script in "$ROOT"/*.sh "$ROOT"/tests/*.sh; do bash -n "$script"; done
-[[ $(<"$ROOT/VERSION") == 0.1.2 ]] || fail "VERSION changed unexpectedly"
+[[ -f "$ROOT/VERSION" ]] || fail "VERSION is missing"
+version=$(<"$ROOT/VERSION")
+semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+[[ $version =~ $semver ]] || fail "VERSION is not valid SemVer"
 assert_contains "$ROOT/Containerfile" 'OPENCODE_VERSION=1.18.30'
-assert_contains "$ROOT/AGENTS.md" 'starts at `0.0.1`'
+assert_contains "$ROOT/AGENTS.md" 'must contain valid SemVer'
 assert_contains "$ROOT/AGENTS.md" "configured primary branch by default"
 assert_contains "$ROOT/AGENTS.md" 'Multiple commits may form one update'
 assert_contains "$ROOT/AGENTS.md" 'memory, queue, runlog, exploratory, incomplete, and checkpoint-only changes need no bump'
@@ -25,8 +31,10 @@ grep -Fxq 'OLLAMA_CONTEXT=32768' "$ROOT/config.example.env" || fail "default Oll
 grep -Fxq 'OLLAMA_OUTPUT=8192' "$ROOT/config.example.env" || fail "default Ollama output limit is incorrect"
 grep -Fxq 'GIT_AUTHOR_NAME=Commitment' "$ROOT/config.example.env" || fail "default Git author name is incorrect"
 grep -Fxq 'GIT_AUTHOR_EMAIL=commitment@localhost' "$ROOT/config.example.env" || fail "default Git author email is incorrect"
+grep -Fxq 'CONTINUE_SESSION=false' "$ROOT/config.example.env" || fail "native session continuation is not disabled by default"
 "$ROOT/tests/runlog.sh"
 "$ROOT/tests/memory-queue-noop.sh"
+"$ROOT/tests/session-regressions.sh"
 shared_token_key=GITHUB_TOKEN
 shared_token_key+=_FILE
 commitment_remote_key=COMMITMENT_
@@ -38,7 +46,7 @@ for stale_key in "$shared_token_key" "$commitment_remote_key" "$lab_remote_key";
         fail "stale configuration remains: $stale_key"
     fi
 done
-pass "shell syntax, pinned version, and version policy"
+pass "shell syntax, pinned dependency, SemVer, and version policy"
 
 make_repo() {
     local name=$1
@@ -47,7 +55,10 @@ make_repo() {
     git -C "$TMP/$name" config user.name Test
     git -C "$TMP/$name" config user.email test@example.invalid
     printf '%s\n' "$name" >"$TMP/$name/README.md"
-    git -C "$TMP/$name" add README.md
+    if [[ $name == commitment ]]; then
+        printf '%s\n' "$fixture_current" >"$TMP/$name/VERSION"
+    fi
+    git -C "$TMP/$name" add -A
     git -C "$TMP/$name" commit -m initial >/dev/null
     git -C "$TMP/$name" remote add origin "$TMP/$name.remote"
     git -C "$TMP/$name" push -u origin main >/dev/null
@@ -113,6 +124,9 @@ done
 if [ -n "${FAKE_PODMAN_ALL_ARGS:-}" ]; then
     printf '%s\n' "$@" >>"$FAKE_PODMAN_ALL_ARGS"
 fi
+if [ "${FAKE_OUTCOME_PROSE:-0}" = 1 ]; then
+    printf '%s\n' 'Outcome: NOOP'
+fi
 if [ -n "$helper" ]; then
     [ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${COMMITMENT_GITHUB_TOKEN:-}${COMMITMENT_GITHUB_TOKEN_FILE:-}${LAB_GITHUB_TOKEN_FILE:-}" ] || exit 90
     export AGENT_REPO=$repo AGENT_BRANCH=$branch AGENT_GIT_NAME=$git_name AGENT_GIT_EMAIL=$git_email AGENT_EXIT_STATUS=$exit_status
@@ -137,7 +151,7 @@ if [ "${FAKE_BOOKKEEPING_ONLY:-0}" != 1 ] && [ -n "${lab:-}" ]; then
     sed -i s/first/revised/ "$lab/small-program"
     test "$("$lab/small-program")" = revised
 fi
-if [ -n "${commitment:-}" ] && [ -n "$outcome_helper" ]; then
+if [ "${FAKE_SKIP_OUTCOME_HELPER:-0}" != 1 ] && [ -n "${commitment:-}" ] && [ -n "$outcome_helper" ]; then
     (
         cd "$commitment"
         COMMITMENT_SESSION_ID=$session_id \
@@ -173,10 +187,12 @@ sed -i \
 assert_file "$HOME/.local/bin/commitment"
 assert_file "$XDG_CONFIG_HOME/systemd/user/commitment.timer"
 assert_contains "$XDG_CONFIG_HOME/systemd/user/commitment.timer" 'OnCalendar=daily'
+grep -Fxq 'CONTINUE_SESSION=false' "$CONFIG" || fail "fresh install enabled native session continuation"
 pass "disposable install"
 
 printf '%s\n' preserve >"$XDG_CONFIG_HOME/commitment/preserved"
-printf '%s\n' state >"$XDG_DATA_HOME/commitment/opencode-data/preserved"
+printf '%s\n' "$fixture_current" >"$XDG_DATA_HOME/commitment/opencode-data/current-version"
+printf 'Prior session says VERSION should be %s, not %s\n' "$fixture_prior" "$fixture_current" >"$XDG_DATA_HOME/commitment/opencode-data/preserved"
 COMMITMENT_SKIP_BUILD=1 "$ROOT/install.sh" >/dev/null
 assert_file "$XDG_CONFIG_HOME/commitment/preserved"
 assert_file "$XDG_DATA_HOME/commitment/opencode-data/preserved"
@@ -194,7 +210,20 @@ first_session_id=$session_id
 "$HOME/.local/bin/commitment" >/dev/null
 second_session_id=$(sed -n 's/^COMMITMENT_SESSION_ID=//p' "$FAKE_PODMAN_ARGS")
 [[ -n $second_session_id && $second_session_id != "$first_session_id" ]] || fail "sequential runs reused a session ID"
-pass "per-run session ID and creative Git identity environment"
+! grep -Fxq -- '--continue' "$FAKE_PODMAN_ARGS" || fail "fresh default resumed stale OpenCode session state"
+grep -Fq "$fixture_prior" "$XDG_DATA_HOME/commitment/opencode-data/preserved" || fail "historical OpenCode state was deleted"
+[[ $(<"$TMP/commitment/VERSION") == "$fixture_current" ]] || fail "fresh run changed VERSION based on stale session text"
+jq -e --arg session_id "$second_session_id" '.session_id == $session_id and .outcome == "CHECKPOINT_UNFINISHED"' \
+    "$TMP/commitment/.git/commitment-session-outcome" >/dev/null || fail "helper invocation did not establish the session outcome"
+pass "fresh default ignores stale session text, preserves state, and records helper outcome"
+
+if FAKE_SKIP_OUTCOME_HELPER=1 FAKE_OUTCOME_PROSE=1 "$HOME/.local/bin/commitment" >"$TMP/prose-outcome.out" 2>&1; then
+    fail "prose-only outcome was accepted"
+fi
+assert_contains "$TMP/prose-outcome.out" 'OpenCode exited without a valid session outcome'
+[[ $(git -C "$TMP/commitment" log -1 --format=%s) == checkpoint:* ]] || fail "missing-outcome session was not checkpointed"
+[[ ! -e "$TMP/commitment/.git/commitment-session-outcome" ]] || fail "prose created a trusted outcome marker"
+pass "prose alone is not an outcome; missing helper invocation fails and checkpoints"
 assert_contains "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" 'http://host.containers.internal:11434/v1'
 assert_contains "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" 'ollama/gpt-oss:20b-32k'
 jq -e '
@@ -270,6 +299,7 @@ git -C "$TMP/commitment" remote set-url origin "$TMP/commitment.remote"
 pass "embedded repository credential rejection"
 
 sed -i 's/^PUBLISH_MODE=.*/PUBLISH_MODE=push/' "$CONFIG"
+sed -i 's/^CONTINUE_SESSION=.*/CONTINUE_SESSION=true/' "$CONFIG"
 "$HOME/.local/bin/commitment" >/dev/null
 grep -Fxq -- '--continue' "$FAKE_PODMAN_ARGS" || fail "native session continuation was not requested"
 local_head=$(git -C "$TMP/lab" rev-parse HEAD)

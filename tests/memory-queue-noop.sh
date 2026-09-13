@@ -9,6 +9,9 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'ok - %s\n' "$*"; }
 assert_contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain $2"; }
 
+FIXTURE_VERSION_BEFORE=7.8.9
+FIXTURE_VERSION_AFTER=7.9.0
+
 [[ -f "$ROOT/memory/README.md" && -f "$ROOT/queue/README.md" ]] || fail "memory or queue format is missing"
 [[ $(find "$ROOT/memory" -maxdepth 1 -type f ! -name README.md | wc -l) -eq 0 ]] || fail "live memory was prepopulated"
 [[ $(find "$ROOT/queue" -maxdepth 1 -type f ! -name README.md | wc -l) -eq 0 ]] || fail "live queue was prepopulated"
@@ -39,7 +42,7 @@ new_repo() {
     git -C "$repo" config user.name Fixture
     git -C "$repo" config user.email fixture@example.invalid
     mkdir -p "$repo/memory" "$repo/queue"
-    printf '%s\n' 0.1.2 >"$repo/VERSION"
+    printf '%s\n' "$FIXTURE_VERSION_BEFORE" >"$repo/VERSION"
     printf '%s\n' '{ts:legacy,session_id:old,type:session_end,summary:preserved}' >"$repo/runlog.jsonl"
     printf '%s\n' fixture >"$repo/base.txt"
     git -C "$repo" add -A
@@ -110,7 +113,7 @@ if record_outcome "$repo_a" scenario-a NOOP "Duplicate outcome" >"$TMP/duplicate
 fi
 result_a=$(finalize "$repo_a" "$base_a" NOOP)
 [[ $result_a == *substantive=0* ]] || fail "NOOP bookkeeping was classified as substantive"
-[[ $(<"$repo_a/VERSION") == 0.1.2 ]] || fail "NOOP required a VERSION bump"
+[[ $(<"$repo_a/VERSION") == "$FIXTURE_VERSION_BEFORE" ]] || fail "NOOP required a VERSION bump"
 [[ $(git -C "$repo_a" log -1 --format=%s) == 'chore: record NOOP session bookkeeping' ]] || fail "NOOP bookkeeping was not committed"
 [[ $(git -C "$repo_a" log -1 --format='%an|%ae') == 'Outcome Author|outcome@example.invalid' ]] || fail "Git identity was not propagated"
 git -C "$repo_a" bundle create "$TMP/noop.bundle" main
@@ -148,7 +151,7 @@ git -C "$repo_b" commit -m 'queue ready work' >/dev/null
 base_b=$(git -C "$repo_b" rev-parse HEAD)
 begin_session "$repo_b" scenario-b
 printf '%s\n' 'implemented ready item' >"$repo_b/implementation.txt"
-printf '%s\n' 0.2.0 >"$repo_b/VERSION"
+printf '%s\n' "$FIXTURE_VERSION_AFTER" >"$repo_b/VERSION"
 git -C "$repo_b" add -A
 git -C "$repo_b" commit -m 'implement ready queue item' >/dev/null
 record_outcome "$repo_b" scenario-b COMMITTED_CHANGE "Implemented the ready evidenced queue item"
@@ -249,6 +252,17 @@ for outcome in CHECKPOINT_UNFINISHED FAILED; do
     [[ $(git -C "$repo" log -1 --format=%s) == checkpoint:* ]] || fail "$outcome did not preserve dirty work"
 done
 pass "CHECKPOINT_UNFINISHED and FAILED remain distinct and preserve dirty work"
+
+repo_invalid="$TMP/invalid-outcome"
+new_repo "$repo_invalid"
+begin_session "$repo_invalid" invalid-outcome
+if record_outcome "$repo_invalid" invalid-outcome NOT_AN_OUTCOME "Invalid fixture" >"$TMP/invalid-outcome.out" 2>&1; then
+    fail "invalid outcome was accepted"
+fi
+grep -Fq 'outcome must be COMMITTED_CHANGE, NOOP, CHECKPOINT_UNFINISHED, or FAILED' "$TMP/invalid-outcome.out" ||
+    fail "invalid outcome rejection was unclear"
+[[ ! -e "$repo_invalid/.git/commitment-session-outcome" ]] || fail "invalid outcome created a marker"
+pass "all four helper outcomes work and invalid outcomes fail"
 
 for state in candidate researching ready blocked deferred done rejected; do
     item="$TMP/state-$state.md"

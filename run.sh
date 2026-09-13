@@ -108,7 +108,7 @@ prompt=$(<"$prompt_file")
 COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-start commitment
 
 continue_args=()
-if [[ ${CONTINUE_SESSION:-true} == true && -e "$STATE_DIR/session-started" ]]; then
+if [[ ${CONTINUE_SESSION:-false} == true && -e "$STATE_DIR/session-started" ]]; then
     continue_args=(--continue)
 fi
 

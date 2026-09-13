@@ -30,7 +30,9 @@ for field in ts session_id type summary; do
     assert_contains "$ROOT/AGENTS.md" "\`$field\`"
 done
 assert_contains "$ROOT/AGENTS.md" 'orchestration records `session_start`'
-assert_contains "$ROOT/AGENTS.md" 'End every normal agent run by executing `commitment-outcome'
+assert_contains "$ROOT/AGENTS.md" 'Before producing the final assistant response, you MUST invoke the installed helper'
+assert_contains "$ROOT/AGENTS.md" 'Plain prose such as `Outcome: NOOP` does not count.'
+assert_contains "$ROOT/AGENTS.md" 'The helper must succeed before the final response.'
 assert_contains "$ROOT/AGENTS.md" 'Use that exact ID for every later event through `session_end`'
 assert_contains "$ROOT/AGENTS.md" 'instead of fabricating an ID'
 assert_contains "$ROOT/AGENTS.md" 'A `test` event additionally requires `command` and `result`'
@@ -73,7 +75,7 @@ printf '%s\n' "$third" >>"$historical"
 tail -n 1 "$historical" | jq -e '.outcome == "NOOP"' >/dev/null || fail "new outcome did not coexist with historical data"
 
 references=$(rg -l 'runlog\.jsonl' "$ROOT" --glob '!.git/**' | sed "s|$ROOT/||" | sort)
-expected=$(printf '%s\n' AGENTS.md README.md agent-git.sh memory/README.md session-outcome.sh tests/memory-queue-noop.sh tests/runlog.sh | sort)
+expected=$(printf '%s\n' AGENTS.md README.md agent-git.sh config.example.env memory/README.md session-outcome.sh tests/memory-queue-noop.sh tests/runlog.sh tests/session-regressions.sh | sort)
 [[ $references == "$expected" ]] || fail "run-log machinery exists outside the log, instructions, documentation, and focused test"
 
 printf 'ok - append-only runlog, evidence fields, outcomes, and historical compatibility\n'
