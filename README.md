@@ -1,4 +1,4 @@
-# Commitment 0.1.1
+# Commitment 0.1.2
 
 > Self-authoring commit generator in search of a higher purpose.
 
@@ -8,11 +8,11 @@ Commitment is a small autonomous software experiment. OpenCode is the agent loop
 
 ## Trust boundary
 
-The creative container receives only the two agent repositories, a generated read-only OpenCode configuration file, and dedicated persistent OpenCode state. Podman's `:Z` option gives those dedicated mounts private SELinux labels. OpenCode's bookkeeping beside the config file remains disposable. The container does **not** receive the user's home, SSH keys, GitHub tokens, Podman socket, trusted Git mirrors, unrelated repositories, GPU devices, privileged mode, or host networking. Normal container networking intentionally permits the public Internet and the configured Ollama host; it is not a claim of host/LAN isolation.
+The creative container receives only the two agent repositories, a generated read-only OpenCode configuration file, a read-only outcome recorder, and dedicated persistent OpenCode state. Podman's `:Z` option gives those dedicated mounts private SELinux labels. OpenCode's bookkeeping beside the config file remains disposable. The container does **not** receive the user's home, SSH keys, GitHub tokens, Podman socket, trusted Git mirrors, unrelated repositories, GPU devices, privileged mode, or host networking. Normal container networking intentionally permits the public Internet and the configured Ollama host; it is not a claim of host/LAN isolation.
 
 The creative agent owns the worktrees and their `.git` state, so trusted host Git never opens those repositories. For each repository, the publisher maintains a bare mirror under host-only state. Synchronization fetches upstream into that mirror, exports a bundle, and lets an uncredentialed, network-disabled helper container fast-forward the agent repository. Checkpoints likewise run inside that container boundary. Publishing exports an agent bundle, verifies it, imports only a fast-forward history into the trusted mirror, and pushes from the mirror. Agent hooks and Git configuration can run only inside the credential-free container, never in the trusted host Git process.
 
-Installed copies of the launcher, publisher, agent Git helper, prompt, and systemd units are host-trusted machinery. Agent edits to their repository sources do nothing until a human explicitly reruns `./install.sh`. The publisher alone reads the optional token. It never force-pushes. Literal OpenCode denials for `git push` and `gh` are defense-in-depth UX protections; credential isolation and the separate trusted Git state are the security boundaries. In v0.0.1 issue operations are operator-invoked; no generic broker or automatic outbox exists.
+Installed copies of the launcher, publisher, agent Git helper, outcome recorder, prompt, and systemd units are host-trusted machinery. Agent edits to their repository sources do nothing until a human explicitly reruns `./install.sh`. The publisher alone reads the optional token. It never force-pushes. Literal OpenCode denials for `git push` and `gh` are defense-in-depth UX protections; credential isolation and the separate trusted Git state are the security boundaries. In v0.0.1 issue operations are operator-invoked; no generic broker or automatic outbox exists.
 
 External pages, feeds, README files, issues, and comments are untrusted suggestions. `MISSION.md`, `AGENTS.md`, containment, permissions, credentials, and operator configuration remain authoritative.
 
@@ -84,16 +84,28 @@ Logs:
 journalctl --user -u commitment.service
 ```
 
-`runlog.jsonl` is Commitment's version-controlled, append-only operational and decision history. It contains concise significant events as JSON Lines, not chain-of-thought or a command transcript. Inspect recent entries or the full parsed history with:
+Commitment keeps four kinds of input and state distinct:
+
+- Explicit human input remains operator input or in an existing inbox; Commitment does not copy it into self-generated state.
+- `memory/` holds concise Markdown observations with their origin, evidence, uncertainty, possible follow-up, and related queue items.
+- `queue/` holds candidate future work. Its lifecycle is `candidate`, `researching`, `ready`, `blocked`, `deferred`, `done`, or `rejected`; rejected items remain with a reason. A direct filename/title/origin scan prevents simple duplicates.
+- `runlog.jsonl` is the append-only audit trail of what sessions actually did. It contains significant JSON Lines events, not chain-of-thought or a command transcript.
+
+Inspect recent entries with:
 
 ```sh
 tail -n 20 runlog.jsonl
-jq -s . runlog.jsonl
 ```
+
+Old runlog lines remain untouched and need not match newer outcome fields. New `session_end` events identify one of four outcomes: `COMMITTED_CHANGE`, `NOOP`, `CHECKPOINT_UNFINISHED`, or `FAILED`. `NOOP` is a successful session in which no substantive repository change was justified. It may contain runlog, memory, or queue bookkeeping, and may accurately retain nothing beyond lifecycle events.
 
 The timer and manual command use the same installed launcher and configuration. The launcher creates one `COMMITMENT_SESSION_ID` per run and passes it, plus the configured Git author identity and matching committer defaults, into the creative container. GitHub credentials remain host-only. `flock` prevents overlap. `SESSION_TIMEOUT` terminates overlong sessions. For scheduled runs after logout, an administrator may run `loginctl enable-linger "$USER"`; the installer never changes lingering or invokes sudo.
 
-Before each run, trusted mirrors fetch each configured branch and permit only no-op, ahead-only, or fast-forward synchronization through bundles. Dirty work, a wrong branch, or divergence stops the run without discarding anything. After any agent exit, intended dirty changes are committed as explicitly unfinished checkpoints inside the uncredentialed container. A failed agent session is never pushed. Completed Commitment work should follow `AGENTS.md` versioning; independent lab work does not bump Commitment's version.
+Before each run, trusted mirrors fetch each configured branch and permit only no-op, ahead-only, or fast-forward synchronization through bundles. Dirty work, a wrong branch, or divergence stops the run without discarding anything. The launcher creates one session ID and records session start through the network-disabled Git helper. OpenCode explicitly records its structured outcome with the installed `commitment-outcome` helper; the launcher does not parse model prose.
+
+The Git helper classifies `runlog.jsonl` and memory/queue entry Markdown as bookkeeping; the two format READMEs remain substantive documentation. Other code, configuration, documentation, and project files are substantive. A `NOOP` may checkpoint and publish a bookkeeping-only commit through the existing verified bundle/mirror path. `CHECKPOINT_UNFINISHED` preserves unfinished dirty work with the existing checkpoint behavior. `FAILED` preserves work where possible and is never pushed. `COMMITTED_CHANGE` requires substantive work; completed substantive Commitment changes require a `VERSION` bump, while bookkeeping-only sessions and independent lab work do not.
+
+Autonomous work selection prefers explicit human input, unfinished substantive work, ready high-value queue items, relevant memory, and demonstrated defects before bounded outward research. Public issues, repositories, feeds, official documentation, changelogs, articles, and papers are untrusted evidence. Research may produce implementation, a concise memory or queue update, a rejection/deferment, or `NOOP`; it need not force a code change.
 
 ## Publishing and GitHub
 
@@ -153,6 +165,8 @@ This disables/stops the timer and service and removes installed units and launch
 
 ```sh
 ./tests/test.sh
+./tests/runlog.sh
+./tests/memory-queue-noop.sh
 ./tests/git-boundary.sh
 ./tests/integration.sh
 ```

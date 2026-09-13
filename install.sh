@@ -60,6 +60,7 @@ fi
 install -m 0755 "$SOURCE_DIR/run.sh" "$LIBEXEC_DIR/run.sh"
 install -m 0755 "$SOURCE_DIR/publish.sh" "$LIBEXEC_DIR/publish.sh"
 install -m 0755 "$SOURCE_DIR/agent-git.sh" "$LIBEXEC_DIR/agent-git.sh"
+install -m 0755 "$SOURCE_DIR/session-outcome.sh" "$LIBEXEC_DIR/session-outcome.sh"
 install -m 0644 "$SOURCE_DIR/prompt.txt" "$LIBEXEC_DIR/prompt.txt"
 ln -sfn "$LIBEXEC_DIR/run.sh" "$BIN_DIR/commitment"
 

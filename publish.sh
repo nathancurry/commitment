@@ -152,6 +152,11 @@ run_agent_git() {
         -e AGENT_GIT_NAME="${GIT_AUTHOR_NAME:-Commitment}" \
         -e AGENT_GIT_EMAIL="${GIT_AUTHOR_EMAIL:-commitment@localhost}" \
         -e AGENT_EXIT_STATUS="${AGENT_EXIT_STATUS:-unknown}" \
+        -e AGENT_REPO_KIND="$KEY" \
+        -e AGENT_BASE_HEAD="${AGENT_BASE_HEAD:-}" \
+        -e AGENT_OUTCOME="${AGENT_OUTCOME:-}" \
+        -e AGENT_FAILURE_SUMMARY="${AGENT_FAILURE_SUMMARY:-}" \
+        -e COMMITMENT_SESSION_ID="${COMMITMENT_SESSION_ID:-}" \
         "$CONTAINER_IMAGE" /usr/local/libexec/commitment-agent-git "$operation" "${container_arg[@]}"
 }
 
@@ -232,6 +237,10 @@ case $command in
         select_repo "${2:-}"
         "${command}_repo"
         ;;
+    session-head|session-start|session-outcome|session-failure|finalize)
+        select_repo "${2:-}"
+        run_agent_git "$command"
+        ;;
     issue-list)
         select_repo "${2:-}"
         gh_auth issue list --repo "$(github_slug)" --limit "${3:-30}"
@@ -251,5 +260,5 @@ case $command in
         [[ ${3:-} =~ ^[1-9][0-9]*$ ]] || die "usage: $0 issue-close REPO NUMBER"
         gh_auth issue close "$3" --repo "$(github_slug)"
         ;;
-    *) die "usage: $0 {sync|checkpoint|push|issue-list|issue-create|issue-comment|issue-close} ..." ;;
+    *) die "usage: $0 {session-head|session-start|session-outcome|session-failure|finalize|sync|checkpoint|push|issue-list|issue-create|issue-comment|issue-close} ..." ;;
 esac

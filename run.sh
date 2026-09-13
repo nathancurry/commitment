@@ -11,6 +11,7 @@ STATE_DIR=${COMMITMENT_STATE_DIR:-"$DATA_HOME/commitment"}
 runtime_path=$(readlink -f -- "$0")
 RUNTIME_DIR=$(CDPATH= cd -- "$(dirname -- "$runtime_path")" && pwd)
 PUBLISHER=${COMMITMENT_PUBLISHER:-"$RUNTIME_DIR/publish.sh"}
+OUTCOME_HELPER=${COMMITMENT_OUTCOME_HELPER:-"$RUNTIME_DIR/session-outcome.sh"}
 
 [[ -r "$CONFIG_FILE" ]] || die "configuration not found: $CONFIG_FILE"
 # shellcheck source=/dev/null
@@ -28,6 +29,7 @@ GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}
 [[ -d "$COMMITMENT_REPO/.git" ]] || die "not a Git repository: $COMMITMENT_REPO"
 [[ -d "$LAB_REPO/.git" ]] || die "not a Git repository: $LAB_REPO"
 [[ -x "$PUBLISHER" ]] || die "trusted publisher not installed: $PUBLISHER"
+[[ -x "$OUTCOME_HELPER" ]] || die "session outcome helper not installed: $OUTCOME_HELPER"
 
 mkdir -p "$STATE_DIR" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data"
 exec 9>"$STATE_DIR/run.lock"
@@ -41,6 +43,8 @@ done
 
 "$PUBLISHER" sync commitment
 "$PUBLISHER" sync lab
+commitment_base=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-head commitment)
+lab_base=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-head lab)
 
 json_escape() {
     local value=$1
@@ -101,6 +105,7 @@ mv -f "$tmp_config" "$STATE_DIR/opencode-config/opencode.json"
 prompt_file="$RUNTIME_DIR/prompt.txt"
 [[ -r "$prompt_file" ]] || die "session prompt not found: $prompt_file"
 prompt=$(<"$prompt_file")
+COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-start commitment
 
 continue_args=()
 if [[ ${CONTINUE_SESSION:-true} == true && -e "$STATE_DIR/session-started" ]]; then
@@ -118,12 +123,15 @@ container_args=(run --rm --name "$container_name"
     -v "$LAB_REPO:/workspace/commitment-lab:rw,Z"
     -v "$STATE_DIR/opencode-config/opencode.json:/home/commitment/.config/opencode/opencode.json:ro,Z"
     -v "$STATE_DIR/opencode-data:/home/commitment/.local/share/opencode:rw,Z"
+    -v "$OUTCOME_HELPER:/usr/local/bin/commitment-outcome:ro,Z"
     -w /workspace/commitment
     -e HOME=/home/commitment
     -e XDG_CONFIG_HOME=/home/commitment/.config
     -e XDG_DATA_HOME=/home/commitment/.local/share
     -e OPENCODE_ENABLE_EXA=1
     -e COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID"
+    -e COMMITMENT_ROOT=/workspace/commitment
+    -e COMMITMENT_OUTCOME_FILE=/workspace/commitment/.git/commitment-session-outcome
     -e GIT_AUTHOR_NAME="$GIT_AUTHOR_NAME"
     -e GIT_AUTHOR_EMAIL="$GIT_AUTHOR_EMAIL"
     -e GIT_COMMITTER_NAME="$GIT_COMMITTER_NAME"
@@ -138,23 +146,68 @@ if (( agent_status != 125 && agent_status != 126 && agent_status != 127 )); then
     touch "$STATE_DIR/session-started"
 fi
 
-checkpoint_failed=0
-AGENT_EXIT_STATUS=$agent_status "$PUBLISHER" checkpoint commitment || checkpoint_failed=1
-AGENT_EXIT_STATUS=$agent_status "$PUBLISHER" checkpoint lab || checkpoint_failed=1
-
 if (( agent_status != 0 )); then
-    if (( checkpoint_failed == 0 )); then
-        note "OpenCode exited with status $agent_status; checkpoint handling succeeded; nothing was published"
-    else
-        note "OpenCode exited with status $agent_status; checkpoint handling failed; dirty work remains preserved and nothing was published"
-    fi
+    failure_summary="OpenCode exited with status $agent_status"
+    COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
+        "$PUBLISHER" session-failure commitment || true
+    AGENT_EXIT_STATUS=$agent_status "$PUBLISHER" checkpoint commitment || true
+    AGENT_EXIT_STATUS=$agent_status "$PUBLISHER" checkpoint lab || true
+    note "$failure_summary; work was checkpointed where possible; nothing was published"
     exit "$agent_status"
 fi
-(( checkpoint_failed == 0 )) || die "session succeeded but checkpoint creation failed"
 
-if [[ $PUBLISH_MODE == push ]]; then
-    "$PUBLISHER" push commitment || die "commitment push failed; local commits preserved"
-    "$PUBLISHER" push lab || die "lab push failed; local commits preserved"
+if ! outcome=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-outcome commitment); then
+    failure_summary="OpenCode exited without a valid session outcome"
+    COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
+        "$PUBLISHER" session-failure commitment || true
+    AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint commitment || true
+    AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint lab || true
+    die "$failure_summary; work was checkpointed where possible and nothing was published"
 fi
 
-note "session completed in $PUBLISH_MODE mode"
+finalize_failed=0
+commitment_result=''
+lab_result=''
+if ! commitment_result=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_EXIT_STATUS=0 \
+    AGENT_BASE_HEAD="$commitment_base" AGENT_OUTCOME="$outcome" "$PUBLISHER" finalize commitment); then
+    finalize_failed=1
+fi
+if ! lab_result=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_EXIT_STATUS=0 \
+    AGENT_BASE_HEAD="$lab_base" AGENT_OUTCOME="$outcome" "$PUBLISHER" finalize lab); then
+    finalize_failed=1
+fi
+if [[ $outcome == COMMITTED_CHANGE && $commitment_result != *substantive=1* && $lab_result != *substantive=1* ]]; then
+    finalize_failed=1
+fi
+if (( finalize_failed != 0 )); then
+    failure_summary="Session outcome did not match repository state"
+    COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
+        "$PUBLISHER" session-failure commitment || true
+    AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint commitment || true
+    AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint lab || true
+    die "$failure_summary; work was checkpointed where possible and nothing was published"
+fi
+
+if [[ $outcome == FAILED ]]; then
+    note "session reported FAILED; work was checkpointed and nothing was published"
+    exit 1
+fi
+
+if [[ $PUBLISH_MODE == push ]]; then
+    if ! "$PUBLISHER" push commitment; then
+        failure_summary="Commitment publication failed"
+        COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
+            "$PUBLISHER" session-failure commitment || true
+        AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint commitment || true
+        die "commitment push failed; local commits preserved"
+    fi
+    if ! "$PUBLISHER" push lab; then
+        failure_summary="Lab publication failed"
+        COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
+            "$PUBLISHER" session-failure commitment || true
+        AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint commitment || true
+        die "lab push failed; local commits preserved"
+    fi
+fi
+
+note "session completed with outcome $outcome in $PUBLISH_MODE mode"

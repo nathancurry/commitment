@@ -11,13 +11,13 @@ assert_file() { [[ -e $1 ]] || fail "missing $1"; }
 assert_contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain $2"; }
 
 for script in "$ROOT"/*.sh "$ROOT"/tests/*.sh; do bash -n "$script"; done
-[[ $(<"$ROOT/VERSION") == 0.1.1 ]] || fail "VERSION changed unexpectedly"
+[[ $(<"$ROOT/VERSION") == 0.1.2 ]] || fail "VERSION changed unexpectedly"
 assert_contains "$ROOT/Containerfile" 'OPENCODE_VERSION=1.18.30'
 assert_contains "$ROOT/AGENTS.md" 'starts at `0.0.1`'
 assert_contains "$ROOT/AGENTS.md" "configured primary branch by default"
 assert_contains "$ROOT/AGENTS.md" 'Multiple commits may form one update'
-assert_contains "$ROOT/AGENTS.md" 'VERSION does not change merely because a session occurred'
-assert_contains "$ROOT/AGENTS.md" 'Before calling a coherent Commitment update complete'
+assert_contains "$ROOT/AGENTS.md" 'memory, queue, runlog, exploratory, incomplete, and checkpoint-only changes need no bump'
+assert_contains "$ROOT/AGENTS.md" 'Before declaring a coherent substantive Commitment update `COMMITTED_CHANGE`'
 assert_contains "$ROOT/AGENTS.md" 'include the appropriate VERSION bump'
 grep -Fxq 'OLLAMA_ENDPOINT=http://host.containers.internal:11434' "$ROOT/config.example.env" || fail "default Ollama endpoint changed"
 grep -Fxq 'OLLAMA_MODEL=gpt-oss:20b-32k' "$ROOT/config.example.env" || fail "default Ollama model is incorrect"
@@ -26,6 +26,7 @@ grep -Fxq 'OLLAMA_OUTPUT=8192' "$ROOT/config.example.env" || fail "default Ollam
 grep -Fxq 'GIT_AUTHOR_NAME=Commitment' "$ROOT/config.example.env" || fail "default Git author name is incorrect"
 grep -Fxq 'GIT_AUTHOR_EMAIL=commitment@localhost' "$ROOT/config.example.env" || fail "default Git author email is incorrect"
 "$ROOT/tests/runlog.sh"
+"$ROOT/tests/memory-queue-noop.sh"
 shared_token_key=GITHUB_TOKEN
 shared_token_key+=_FILE
 commitment_remote_key=COMMITMENT_
@@ -67,11 +68,18 @@ cat >"$TMP/fakebin/podman" <<'EOF'
 [ "${1:-}" = rm ] && exit 0
 repo=''
 helper=''
+outcome_helper=''
 transfer=''
 branch=''
 git_name=''
 git_email=''
 exit_status=''
+repo_kind=''
+base_head=''
+agent_outcome=''
+session_id=''
+commitment_root=''
+failure_summary=''
 operation=''
 previous=''
 for argument do
@@ -79,6 +87,7 @@ for argument do
         case $argument in
             *:/workspace/repo:rw,Z) repo=${argument%:/workspace/repo:rw,Z} ;;
             *:/usr/local/libexec/commitment-agent-git:ro,Z) helper=${argument%:/usr/local/libexec/commitment-agent-git:ro,Z} ;;
+            *:/usr/local/bin/commitment-outcome:ro,Z) outcome_helper=${argument%:/usr/local/bin/commitment-outcome:ro,Z} ;;
             *:/transfer/upstream.bundle:ro,Z) transfer=${argument%:/transfer/upstream.bundle:ro,Z} ;;
             *:/transfer:rw,Z) transfer=${argument%:/transfer:rw,Z} ;;
             *:/workspace/commitment:rw,Z) commitment=${argument%:/workspace/commitment:rw,Z} ;;
@@ -90,9 +99,15 @@ for argument do
             AGENT_GIT_NAME=*) git_name=${argument#AGENT_GIT_NAME=} ;;
             AGENT_GIT_EMAIL=*) git_email=${argument#AGENT_GIT_EMAIL=} ;;
             AGENT_EXIT_STATUS=*) exit_status=${argument#AGENT_EXIT_STATUS=} ;;
+            AGENT_REPO_KIND=*) repo_kind=${argument#AGENT_REPO_KIND=} ;;
+            AGENT_BASE_HEAD=*) base_head=${argument#AGENT_BASE_HEAD=} ;;
+            AGENT_OUTCOME=*) agent_outcome=${argument#AGENT_OUTCOME=} ;;
+            AGENT_FAILURE_SUMMARY=*) failure_summary=${argument#AGENT_FAILURE_SUMMARY=} ;;
+            COMMITMENT_SESSION_ID=*) session_id=${argument#COMMITMENT_SESSION_ID=} ;;
+            COMMITMENT_ROOT=*) commitment_root=${argument#COMMITMENT_ROOT=} ;;
         esac
     fi
-    case $argument in sync|checkpoint|export) operation=$argument ;; esac
+    case $argument in session-head|session-start|session-outcome|session-failure|finalize|sync|checkpoint|export) operation=$argument ;; esac
     previous=$argument
 done
 if [ -n "${FAKE_PODMAN_ALL_ARGS:-}" ]; then
@@ -101,21 +116,35 @@ fi
 if [ -n "$helper" ]; then
     [ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${COMMITMENT_GITHUB_TOKEN:-}${COMMITMENT_GITHUB_TOKEN_FILE:-}${LAB_GITHUB_TOKEN_FILE:-}" ] || exit 90
     export AGENT_REPO=$repo AGENT_BRANCH=$branch AGENT_GIT_NAME=$git_name AGENT_GIT_EMAIL=$git_email AGENT_EXIT_STATUS=$exit_status
+    export AGENT_REPO_KIND=$repo_kind AGENT_BASE_HEAD=$base_head AGENT_OUTCOME=$agent_outcome
+    export AGENT_FAILURE_SUMMARY=$failure_summary COMMITMENT_SESSION_ID=$session_id
     case $operation in
         sync) exec "$helper" sync "$transfer" ;;
         checkpoint) exec "$helper" checkpoint ;;
         export) exec "$helper" export "$transfer/agent.bundle" ;;
+        *) exec "$helper" "$operation" ;;
     esac
     exit 2
 fi
 printf '%s\n' "$@" >"$FAKE_PODMAN_ARGS"
-[ -n "${commitment:-}" ] && printf '%s\n' agent-change >>"$commitment/agent.txt"
-if [ -n "${lab:-}" ]; then
+if [ "${FAKE_BOOKKEEPING_ONLY:-0}" != 1 ] && [ -n "${commitment:-}" ]; then
+    printf '%s\n' agent-change >>"$commitment/agent.txt"
+fi
+if [ "${FAKE_BOOKKEEPING_ONLY:-0}" != 1 ] && [ -n "${lab:-}" ]; then
     printf '%s\n' '#!/bin/sh' 'printf "%s\n" first' >"$lab/small-program"
     chmod +x "$lab/small-program"
     test "$("$lab/small-program")" = first
     sed -i s/first/revised/ "$lab/small-program"
     test "$("$lab/small-program")" = revised
+fi
+if [ -n "${commitment:-}" ] && [ -n "$outcome_helper" ]; then
+    (
+        cd "$commitment"
+        COMMITMENT_SESSION_ID=$session_id \
+            COMMITMENT_ROOT="$commitment" \
+            COMMITMENT_OUTCOME_FILE="$commitment/.git/commitment-session-outcome" \
+            "$outcome_helper" "${FAKE_SESSION_OUTCOME:-CHECKPOINT_UNFINISHED}" "Synthetic autonomous session"
+    )
 fi
 if [ "${FAKE_BREAK_REMOTE:-0}" = 1 ]; then
     mv "$FAKE_UPSTREAM" "$FAKE_UPSTREAM.off"
@@ -214,8 +243,8 @@ pass "operator-selected Ollama model and limits"
 [[ $(git -C "$TMP/commitment" log -1 --format=%s) == checkpoint:* ]] || fail "commitment checkpoint missing"
 [[ $(git -C "$TMP/lab" log -1 --format=%s) == checkpoint:* ]] || fail "lab checkpoint missing"
 [[ $("$TMP/lab/small-program") == revised ]] || fail "program revision did not survive"
-mount_count=$(grep -cE ':/workspace/commitment(-lab)?:rw,Z|:/home/commitment/\.config/opencode/opencode.json:ro,Z|:/home/commitment/\.local/share/opencode:rw,Z' "$FAKE_PODMAN_ARGS")
-[[ $mount_count -eq 4 ]] || fail "expected exactly four intended mounts"
+mount_count=$(grep -cE ':/workspace/commitment(-lab)?:rw,Z|:/home/commitment/\.config/opencode/opencode.json:ro,Z|:/home/commitment/\.local/share/opencode:rw,Z|:/usr/local/bin/commitment-outcome:ro,Z' "$FAKE_PODMAN_ARGS")
+[[ $mount_count -eq 5 ]] || fail "expected exactly five intended mounts"
 ! grep -Fq "$HOME:" "$FAKE_PODMAN_ARGS" || fail "home directory was mounted"
 ! grep -Fq 'GITHUB_TOKEN' "$FAKE_PODMAN_ARGS" || fail "GitHub credential was passed"
 pass "configuration generation, both workspaces, checkpoints, program revision, and mount boundary"
@@ -247,6 +276,14 @@ local_head=$(git -C "$TMP/lab" rev-parse HEAD)
 remote_head=$(git --git-dir="$TMP/lab.remote" rev-parse refs/heads/main)
 [[ $local_head == "$remote_head" ]] || fail "push mode did not publish lab"
 pass "trusted local publishing"
+
+lab_before_noop=$(git --git-dir="$TMP/lab.remote" rev-parse refs/heads/main)
+FAKE_BOOKKEEPING_ONLY=1 FAKE_SESSION_OUTCOME=NOOP "$HOME/.local/bin/commitment" >/dev/null
+[[ $(git --git-dir="$TMP/commitment.remote" log -1 --format=%s) == 'chore: record NOOP session bookkeeping' ]] ||
+    fail "bookkeeping-only NOOP was not published through the existing path"
+[[ $(git --git-dir="$TMP/lab.remote" rev-parse refs/heads/main) == "$lab_before_noop" ]] ||
+    fail "NOOP changed the lab repository"
+pass "bookkeeping-only NOOP checkpoint and publication"
 
 COMMITMENT_FAKE_TOKEN=commitment-fake-token
 LAB_FAKE_TOKEN=lab-fake-token

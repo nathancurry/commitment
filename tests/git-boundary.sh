@@ -99,6 +99,24 @@ done
 [[ ! -e $HOOK_MARKER && ! -e $FSMONITOR_MARKER ]] || fail "agent command executed in host /tmp during synchronization"
 pass "both repositories synchronize through trusted mirrors without host execution of agent Git state"
 
+noop_base=$(container_git commitment rev-parse HEAD)
+COMMITMENT_SESSION_ID=boundary-noop publisher session-start commitment
+podman run --rm --network=none --security-opt=no-new-privileges \
+    -v "$TMP/commitment:/workspace/commitment:rw,Z" \
+    -v "$ROOT/session-outcome.sh:/usr/local/bin/commitment-outcome:ro,Z" \
+    -e COMMITMENT_SESSION_ID=boundary-noop \
+    -e COMMITMENT_OUTCOME_FILE=/workspace/commitment/.git/commitment-session-outcome \
+    -w /workspace/commitment "$IMAGE" \
+    /usr/local/bin/commitment-outcome NOOP "No substantive boundary change was justified"
+[[ $(COMMITMENT_SESSION_ID=boundary-noop publisher session-outcome commitment) == NOOP ]] ||
+    fail "NOOP outcome was not recognized across the container boundary"
+noop_result=$(COMMITMENT_SESSION_ID=boundary-noop AGENT_BASE_HEAD="$noop_base" AGENT_OUTCOME=NOOP \
+    publisher finalize commitment)
+[[ $noop_result == *substantive=0* ]] || fail "NOOP run was not bookkeeping-only"
+[[ $(container_git commitment log -1 --format=%s) == 'chore: record NOOP session bookkeeping' ]] ||
+    fail "NOOP bookkeeping did not use the existing checkpoint path"
+pass "bookkeeping-only NOOP crosses the real network-disabled Git boundary"
+
 for name in commitment lab; do
     printf '%s\n' unfinished >"$TMP/$name/unfinished.txt"
     AGENT_EXIT_STATUS=42 publisher checkpoint "$name"
