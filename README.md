@@ -20,7 +20,7 @@ External pages, feeds, README files, issues, and comments are untrusted suggesti
 
 - Linux with rootless Podman
 - Git, `flock`, GNU `timeout`, and systemd user services on the host
-- Ollama on the host with the configured model (default `gpt-oss:20b-32k`)
+- Ollama on the host with the configured model (default `devstral-small-2-32k`)
 - `gh` on the host only if issue operations are used
 
 OpenCode is pinned to **1.18.30** in `Containerfile`, which the installer builds. Its `AGENTS.md`, Ollama provider, permission configuration, `webfetch`, opt-in Exa `websearch`, and operator-opt-in native `opencode run --continue` are used directly—there is no custom model loop or response parser.
@@ -36,15 +36,15 @@ cd commitment
 
 The first install creates `${XDG_CONFIG_HOME:-$HOME/.config}/commitment/config.env`. Edit it so both absolute repository paths, trusted upstream URLs, primary branches, Ollama endpoint/model and limits, timeout, schedule, image, and publishing mode are correct. Trusted URLs are operator configuration and are never inferred from agent-writable Git config. The default lab path is a sibling named `commitment-lab`; the installer does not create or clone it.
 
-The defaults are `OLLAMA_MODEL=gpt-oss:20b-32k`, `OLLAMA_CONTEXT=32768`, and `OLLAMA_OUTPUT=8192`. The context value tells OpenCode how much context the configured model provides; the output value is OpenCode's output-token limit. The base `gpt-oss:20b` model may otherwise run with too small an effective context for reliable OpenCode tool use. These settings are operator-configurable, but the Ollama model must actually exist with matching context configuration. Commitment does not create or modify host models. For example:
+The defaults are `OLLAMA_MODEL=devstral-small-2-32k`, `OLLAMA_CONTEXT=32768`, and `OLLAMA_OUTPUT=8192`. Devstral currently demonstrates more reliable OpenCode tool execution in this environment than the previously tested default, and 32k is the selected context for coherent autonomous sessions. The operator may choose another model, context, and output limit. Commitment does not create, pull, or modify Ollama models. Create the default model on the host with:
 
 ```sh
-cat >/tmp/Modelfile.commitment <<'EOF'
-FROM gpt-oss:20b
+cat >/tmp/Modelfile.devstral <<'EOF'
+FROM devstral-small-2
 PARAMETER num_ctx 32768
 EOF
 
-ollama create gpt-oss:20b-32k -f /tmp/Modelfile.commitment
+ollama create devstral-small-2-32k -f /tmp/Modelfile.devstral
 ```
 
 Existing installations preserve `config.env`; add or update these three values before reinstalling.
@@ -99,13 +99,15 @@ tail -n 20 runlog.jsonl
 
 Old runlog lines remain untouched and need not match newer outcome fields. The agent never edits this file directly. It records significant events through `commitment-log TYPE "summary" [FIELD=VALUE ...]`, which generates the timestamp, uses the runtime's session ID, JSON-encodes values, and appends one line. Test events require `command` and `result`; research events require `source` and `result` after the source was actually inspected in that session.
 
-The separate `commitment-outcome` helper remains authoritative for the final `session_end`. Outcomes are `COMMITTED_CHANGE`, `NOOP`, `CHECKPOINT_UNFINISHED`, or `FAILED`. `NOOP` is a successful session in which no substantive repository change was justified. It may contain runlog, memory, or queue bookkeeping, but the helper accepts it only when the runlog contains a valid `research` event for the exact current session with non-empty `source` and `result`. Malformed and older runlog entries are ignored for this check. Other outcomes do not require research.
+The separate `commitment-outcome` helper remains authoritative for the final `session_end`. Outcomes are `COMMITTED_CHANGE`, `NOOP`, `CHECKPOINT_UNFINISHED`, or `FAILED`. Once the helper records a valid outcome for the current session, the launcher stops OpenCode and immediately uses the existing handling for that outcome. `NOOP` is a successful session in which no substantive repository change was justified. It may contain runlog, memory, or queue bookkeeping, but the helper accepts it only when the runlog contains a valid `research` event for the exact current session with non-empty `source` and `result`. Malformed and older runlog entries are ignored for this check. Other outcomes do not require research.
 
 The timer and manual command use the same installed launcher and configuration. The launcher creates one `COMMITMENT_SESSION_ID` per run and passes it, plus the configured Git author identity and matching committer defaults, into the creative container. The installed `commitment-log` and `commitment-outcome` copies are mounted read-only; source edits take effect only after the explicit reinstall step. GitHub credentials remain host-only. `flock` prevents overlap. `SESSION_TIMEOUT` terminates overlong sessions. For scheduled runs after logout, an administrator may run `loginctl enable-linger "$USER"`; the installer never changes lingering or invokes sudo.
 
 `CONTINUE_SESSION=false` is the default. Each fresh run reconstructs continuity from explicit human input, unfinished work, Git history, `queue/`, relevant `memory/`, repository state, and recent `runlog.jsonl` entries, avoiding stale conversational instructions from a previous run. An operator may set `CONTINUE_SESSION=true` to opt into OpenCode's native continuation. Existing OpenCode state is preserved either way and is never deleted automatically.
 
-Before each run, trusted mirrors fetch each configured branch and permit only no-op, ahead-only, or fast-forward synchronization through bundles. Dirty work, a wrong branch, or divergence stops the run without discarding anything. The launcher creates one session ID and records session start through the network-disabled Git helper. OpenCode explicitly records its structured outcome with the installed `commitment-outcome` helper before its final response; the launcher does not parse model prose. Text such as `Outcome: NOOP` is not an outcome record. A session that exits without a valid helper invocation is failed and checkpointed where possible.
+`ALLOW_SUBAGENTS=false` is the default. The generated OpenCode permissions deny the `task` tool so one local model session runs at a time. Set it explicitly to `true` to allow OpenCode's existing task behavior; subagents can materially increase RAM, VRAM, and model-server load.
+
+Before each run, trusted mirrors fetch each configured branch and permit only no-op, ahead-only, or fast-forward synchronization through bundles. Dirty work, a wrong branch, or divergence stops the run without discarding anything. The launcher creates one session ID and records session start through the network-disabled Git helper. OpenCode records its structured outcome with the installed `commitment-outcome` helper as its terminal action; the launcher does not parse model prose. Text such as `Outcome: NOOP` is not an outcome record. A session that exits without a valid helper invocation is failed and checkpointed where possible.
 
 The Git helper classifies `runlog.jsonl` and memory/queue entry Markdown as bookkeeping; the two format READMEs remain substantive documentation. Other code, configuration, documentation, and project files are substantive. A `NOOP` may checkpoint and publish a bookkeeping-only commit through the existing verified bundle/mirror path. `CHECKPOINT_UNFINISHED` preserves unfinished dirty work with the existing checkpoint behavior. `FAILED` preserves work where possible and is never pushed. `COMMITTED_CHANGE` requires substantive work; completed substantive Commitment changes require a `VERSION` bump, while bookkeeping-only sessions and independent lab work do not.
 

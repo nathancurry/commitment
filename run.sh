@@ -21,11 +21,13 @@ source "$CONFIG_FILE"
 for name in COMMITMENT_REPO COMMITMENT_BRANCH COMMITMENT_UPSTREAM_URL LAB_REPO LAB_BRANCH LAB_UPSTREAM_URL OLLAMA_ENDPOINT OLLAMA_MODEL OLLAMA_CONTEXT OLLAMA_OUTPUT SESSION_TIMEOUT PUBLISH_MODE CONTAINER_IMAGE GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL; do
     [[ -n ${!name:-} ]] || die "$name is required in $CONFIG_FILE"
 done
+ALLOW_SUBAGENTS=${ALLOW_SUBAGENTS-false}
 GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME:-$GIT_AUTHOR_NAME}
 GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}
 [[ $OLLAMA_CONTEXT =~ ^[1-9][0-9]*$ ]] || die "OLLAMA_CONTEXT must be a positive integer"
 [[ $OLLAMA_OUTPUT =~ ^[1-9][0-9]*$ ]] || die "OLLAMA_OUTPUT must be a positive integer"
 [[ $SESSION_TIMEOUT =~ ^[1-9][0-9]*$ ]] || die "SESSION_TIMEOUT must be a positive integer"
+[[ $ALLOW_SUBAGENTS == true || $ALLOW_SUBAGENTS == false ]] || die "ALLOW_SUBAGENTS must be true or false"
 [[ $PUBLISH_MODE == checkpoint || $PUBLISH_MODE == push ]] || die "PUBLISH_MODE must be checkpoint or push"
 [[ -d "$COMMITMENT_REPO/.git" ]] || die "not a Git repository: $COMMITMENT_REPO"
 [[ -d "$LAB_REPO/.git" ]] || die "not a Git repository: $LAB_REPO"
@@ -60,6 +62,8 @@ endpoint=${OLLAMA_ENDPOINT%/}
 [[ $endpoint == */v1 ]] || endpoint="$endpoint/v1"
 endpoint_json=$(json_escape "$endpoint")
 model_json=$(json_escape "$OLLAMA_MODEL")
+task_permission=deny
+[[ $ALLOW_SUBAGENTS == true ]] && task_permission=allow
 
 tmp_config=$(mktemp "$STATE_DIR/opencode-config/opencode.json.XXXXXX")
 cat >"$tmp_config" <<EOF
@@ -88,6 +92,7 @@ cat >"$tmp_config" <<EOF
   "permission": {
     "*": "allow",
     "question": "deny",
+    "task": "$task_permission",
     "webfetch": "allow",
     "websearch": "allow",
     "external_directory": { "/workspace/commitment-lab/**": "allow" },
@@ -143,13 +148,35 @@ container_args=(run --rm --name "$container_name"
 
 note "starting OpenCode session (timeout ${SESSION_TIMEOUT}s)"
 agent_status=0
-timeout --signal=TERM --kill-after=30 "$SESSION_TIMEOUT" podman "${container_args[@]}" || agent_status=$?
+outcome_recorded=false
+timeout --signal=TERM --kill-after=30 "$SESSION_TIMEOUT" podman "${container_args[@]}" &
+agent_pid=$!
+while kill -0 "$agent_pid" 2>/dev/null; do
+    if COMMITMENT_ROOT="$COMMITMENT_REPO" COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" \
+        "$OUTCOME_HELPER" --read >/dev/null 2>&1; then
+        outcome_recorded=true
+        note "trusted session outcome recorded; stopping OpenCode"
+        podman stop --time 5 "$container_name" >/dev/null 2>&1 || true
+        if kill -0 "$agent_pid" 2>/dev/null; then
+            kill -TERM "$agent_pid" 2>/dev/null || true
+        fi
+        break
+    fi
+    sleep 0.5
+done
+wait "$agent_pid" || agent_status=$?
 podman rm -f "$container_name" >/dev/null 2>&1 || true
 if (( agent_status != 125 && agent_status != 126 && agent_status != 127 )); then
     touch "$STATE_DIR/session-started"
 fi
 
-if (( agent_status != 0 )); then
+if outcome=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-outcome commitment); then
+    outcome_recorded=true
+else
+    outcome_recorded=false
+fi
+
+if ! $outcome_recorded && (( agent_status != 0 )); then
     failure_summary="OpenCode exited with status $agent_status"
     COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
         "$PUBLISHER" session-failure commitment || true
@@ -157,9 +184,7 @@ if (( agent_status != 0 )); then
     AGENT_EXIT_STATUS=$agent_status "$PUBLISHER" checkpoint lab || true
     note "$failure_summary; work was checkpointed where possible; nothing was published"
     exit "$agent_status"
-fi
-
-if ! outcome=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-outcome commitment); then
+elif ! $outcome_recorded; then
     failure_summary="OpenCode exited without a valid session outcome"
     COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
         "$PUBLISHER" session-failure commitment || true

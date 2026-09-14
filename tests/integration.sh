@@ -30,7 +30,7 @@ mkdir -p "$TMP/config" "$TMP/state"
 cat >"$TMP/config/opencode.json" <<'EOF'
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "ollama/gpt-oss:20b-32k",
+  "model": "ollama/devstral-small-2-32k",
   "enabled_providers": ["ollama"],
   "autoupdate": false,
   "share": "disabled",
@@ -40,8 +40,8 @@ cat >"$TMP/config/opencode.json" <<'EOF'
       "name": "Ollama (operator configured)",
       "options": { "baseURL": "http://host.containers.internal:11434/v1" },
       "models": {
-        "gpt-oss:20b-32k": {
-          "name": "gpt-oss:20b-32k",
+        "devstral-small-2-32k": {
+          "name": "devstral-small-2-32k",
           "limit": { "context": 32768, "output": 8192 }
         }
       }
@@ -50,6 +50,7 @@ cat >"$TMP/config/opencode.json" <<'EOF'
   "permission": {
     "*": "allow",
     "question": "deny",
+    "task": "deny",
     "webfetch": "allow",
     "websearch": "allow",
     "external_directory": { "/workspace/commitment-lab/**": "allow" },
@@ -62,7 +63,7 @@ printf '%s\n' lab-fake-token >"$TMP/lab-github-token"
 
 podman run --rm --network=none \
     -v "$TMP/config/opencode.json:/home/commitment/.config/opencode/opencode.json:ro,Z" \
-    "$IMAGE" opencode debug config | jq -e '.model == "ollama/gpt-oss:20b-32k" and .permission.question == "deny" and .provider.ollama.models["gpt-oss:20b-32k"].limit.context == 32768 and .provider.ollama.models["gpt-oss:20b-32k"].limit.output == 8192' >/dev/null
+    "$IMAGE" opencode debug config | jq -e '.model == "ollama/devstral-small-2-32k" and .permission.question == "deny" and .permission.task == "deny" and .provider.ollama.models["devstral-small-2-32k"].limit.context == 32768 and .provider.ollama.models["devstral-small-2-32k"].limit.output == 8192' >/dev/null
 printf 'ok - OpenCode accepts the generated provider and permission configuration\n'
 
 podman create --name "$C1" \

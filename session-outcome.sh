@@ -7,13 +7,36 @@ normalize_summary() {
     jq -nr --arg value "$1" '$value | gsub("[[:space:]]+"; " ") | sub("^ "; "") | sub(" $"; "")'
 }
 
+read_outcome() {
+    local root marker
+    root=${COMMITMENT_ROOT:-$(git rev-parse --show-toplevel)}
+    [[ -d "$root/.git" ]] || die "Commitment repository is unavailable: $root"
+    [[ -f "$root/runlog.jsonl" ]] || die "runlog.jsonl is missing"
+    marker=${COMMITMENT_OUTCOME_FILE:-"$root/.git/commitment-session-outcome"}
+    [[ -f $marker && ! -L $marker ]] || die "session outcome was not recorded"
+    jq -e --arg session_id "$COMMITMENT_SESSION_ID" '
+        type == "object" and
+        .session_id == $session_id and
+        (.outcome | IN("COMMITTED_CHANGE", "NOOP", "CHECKPOINT_UNFINISHED", "FAILED")) and
+        (.summary | type == "string" and length > 0)
+    ' "$marker" >/dev/null || die "session outcome is invalid"
+    grep -Fqx -- "$(<"$marker")" "$root/runlog.jsonl" ||
+        die "session outcome is missing from runlog.jsonl"
+    jq -r .outcome "$marker"
+}
+
+[[ -n ${COMMITMENT_SESSION_ID:-} ]] || die "COMMITMENT_SESSION_ID is required"
+if [[ ${1:-} == --read ]]; then
+    read_outcome
+    exit 0
+fi
+
 outcome=${1:-}
 summary=${2:-}
 case $outcome in
     COMMITTED_CHANGE|NOOP|CHECKPOINT_UNFINISHED|FAILED) ;;
     *) die "outcome must be COMMITTED_CHANGE, NOOP, CHECKPOINT_UNFINISHED, or FAILED" ;;
 esac
-[[ -n ${COMMITMENT_SESSION_ID:-} ]] || die "COMMITMENT_SESSION_ID is required"
 summary=$(normalize_summary "$summary")
 [[ -n $summary ]] || die "a summary is required"
 

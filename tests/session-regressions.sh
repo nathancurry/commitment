@@ -14,6 +14,8 @@ if rg -n -F "$current_version" "$ROOT/tests" >/dev/null; then
 fi
 assert_contains "$ROOT/config.example.env" 'CONTINUE_SESSION=false'
 assert_contains "$ROOT/run.sh" '${CONTINUE_SESSION:-false}'
+assert_contains "$ROOT/config.example.env" 'ALLOW_SUBAGENTS=false'
+assert_contains "$ROOT/run.sh" '"task": "$task_permission"'
 assert_contains "$ROOT/prompt.txt" '(1) explicit human input'
 assert_contains "$ROOT/prompt.txt" '(2) unfinished substantive work and checkpoints'
 assert_contains "$ROOT/prompt.txt" '(3) ready evidenced queue work'

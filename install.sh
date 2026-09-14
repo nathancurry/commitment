@@ -46,12 +46,14 @@ fi
 
 # shellcheck source=/dev/null
 source "$CONFIG_FILE"
+ALLOW_SUBAGENTS=${ALLOW_SUBAGENTS-false}
 [[ -n ${CONTAINER_IMAGE:-} ]] || die "CONTAINER_IMAGE is required in $CONFIG_FILE"
 [[ -n ${SCHEDULE:-} && $SCHEDULE != *$'\n'* ]] || die "SCHEDULE must be a one-line systemd calendar expression"
 for name in OLLAMA_CONTEXT OLLAMA_OUTPUT; do
     [[ -n ${!name:-} ]] || die "$name is required in $CONFIG_FILE"
     [[ ${!name} =~ ^[1-9][0-9]*$ ]] || die "$name must be a positive integer"
 done
+[[ $ALLOW_SUBAGENTS == true || $ALLOW_SUBAGENTS == false ]] || die "ALLOW_SUBAGENTS must be true or false"
 
 if [[ ${COMMITMENT_SKIP_BUILD:-0} != 1 ]]; then
     podman build -t "$CONTAINER_IMAGE" -f "$SOURCE_DIR/Containerfile" "$SOURCE_DIR"

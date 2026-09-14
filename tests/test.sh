@@ -26,15 +26,17 @@ assert_contains "$ROOT/AGENTS.md" 'memory, queue, runlog, exploratory, incomplet
 assert_contains "$ROOT/AGENTS.md" 'Before declaring a coherent substantive Commitment update `COMMITTED_CHANGE`'
 assert_contains "$ROOT/AGENTS.md" 'include the appropriate VERSION bump'
 grep -Fxq 'OLLAMA_ENDPOINT=http://host.containers.internal:11434' "$ROOT/config.example.env" || fail "default Ollama endpoint changed"
-grep -Fxq 'OLLAMA_MODEL=gpt-oss:20b-32k' "$ROOT/config.example.env" || fail "default Ollama model is incorrect"
+grep -Fxq 'OLLAMA_MODEL=devstral-small-2-32k' "$ROOT/config.example.env" || fail "default Ollama model is incorrect"
 grep -Fxq 'OLLAMA_CONTEXT=32768' "$ROOT/config.example.env" || fail "default Ollama context is incorrect"
 grep -Fxq 'OLLAMA_OUTPUT=8192' "$ROOT/config.example.env" || fail "default Ollama output limit is incorrect"
 grep -Fxq 'GIT_AUTHOR_NAME=Commitment' "$ROOT/config.example.env" || fail "default Git author name is incorrect"
 grep -Fxq 'GIT_AUTHOR_EMAIL=commitment@localhost' "$ROOT/config.example.env" || fail "default Git author email is incorrect"
 grep -Fxq 'CONTINUE_SESSION=false' "$ROOT/config.example.env" || fail "native session continuation is not disabled by default"
+grep -Fxq 'ALLOW_SUBAGENTS=false' "$ROOT/config.example.env" || fail "subagents are not disabled by default"
 "$ROOT/tests/runlog.sh"
 "$ROOT/tests/memory-queue-noop.sh"
 "$ROOT/tests/session-regressions.sh"
+"$ROOT/tests/terminal-outcome.sh"
 shared_token_key=GITHUB_TOKEN
 shared_token_key+=_FILE
 commitment_remote_key=COMMITMENT_
@@ -77,6 +79,7 @@ cat >"$TMP/fakebin/podman" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = info ] && { printf '%s\n' true; exit 0; }
 [ "${1:-}" = rm ] && exit 0
+[ "${1:-}" = stop ] && exit 0
 repo=''
 helper=''
 outcome_helper=''
@@ -200,6 +203,7 @@ assert_file "$HOME/.local/libexec/commitment/commitment-log.sh"
 assert_file "$XDG_CONFIG_HOME/systemd/user/commitment.timer"
 assert_contains "$XDG_CONFIG_HOME/systemd/user/commitment.timer" 'OnCalendar=daily'
 grep -Fxq 'CONTINUE_SESSION=false' "$CONFIG" || fail "fresh install enabled native session continuation"
+grep -Fxq 'ALLOW_SUBAGENTS=false' "$CONFIG" || fail "fresh install enabled subagents"
 pass "disposable install"
 
 printf '%s\n' preserve >"$XDG_CONFIG_HOME/commitment/preserved"
@@ -237,15 +241,36 @@ assert_contains "$TMP/prose-outcome.out" 'OpenCode exited without a valid sessio
 [[ ! -e "$TMP/commitment/.git/commitment-session-outcome" ]] || fail "prose created a trusted outcome marker"
 pass "prose alone is not an outcome; missing helper invocation fails and checkpoints"
 assert_contains "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" 'http://host.containers.internal:11434/v1'
-assert_contains "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" 'ollama/gpt-oss:20b-32k'
+assert_contains "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" 'ollama/devstral-small-2-32k'
 jq -e '
-    .model == "ollama/gpt-oss:20b-32k" and
+    .model == "ollama/devstral-small-2-32k" and
     .provider.ollama.options.baseURL == "http://host.containers.internal:11434/v1" and
-    .provider.ollama.models["gpt-oss:20b-32k"].name == "gpt-oss:20b-32k" and
-    .provider.ollama.models["gpt-oss:20b-32k"].limit.context == 32768 and
-    .provider.ollama.models["gpt-oss:20b-32k"].limit.output == 8192 and
-    .permission.question == "deny"
+    .provider.ollama.models["devstral-small-2-32k"].name == "devstral-small-2-32k" and
+    .provider.ollama.models["devstral-small-2-32k"].limit.context == 32768 and
+    .provider.ollama.models["devstral-small-2-32k"].limit.output == 8192 and
+    .permission.question == "deny" and
+    .permission.task == "deny"
 ' "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" >/dev/null || fail "generated OpenCode JSON is invalid"
+
+cp "$CONFIG" "$TMP/config.valid"
+sed -i 's/^ALLOW_SUBAGENTS=.*/ALLOW_SUBAGENTS=true/' "$CONFIG"
+"$HOME/.local/bin/commitment" >/dev/null
+jq -e '.permission.task == "allow"' "$XDG_DATA_HOME/commitment/opencode-config/opencode.json" >/dev/null ||
+    fail "ALLOW_SUBAGENTS=true did not allow OpenCode task"
+cp "$TMP/config.valid" "$CONFIG"
+for value in yes 1 FALSE; do
+    sed -i "s/^ALLOW_SUBAGENTS=.*/ALLOW_SUBAGENTS=$value/" "$CONFIG"
+    if "$HOME/.local/bin/commitment" >"$TMP/subagents-$value.out" 2>&1; then
+        fail "ALLOW_SUBAGENTS=$value was accepted"
+    fi
+    assert_contains "$TMP/subagents-$value.out" 'ALLOW_SUBAGENTS must be true or false'
+    if COMMITMENT_SKIP_BUILD=1 "$ROOT/install.sh" >"$TMP/install-subagents-$value.out" 2>&1; then
+        fail "installer accepted ALLOW_SUBAGENTS=$value"
+    fi
+    assert_contains "$TMP/install-subagents-$value.out" 'ALLOW_SUBAGENTS must be true or false'
+    cp "$TMP/config.valid" "$CONFIG"
+done
+pass "single-agent default, explicit task opt-in, and boolean validation"
 
 cp "$CONFIG" "$TMP/config.valid"
 for name in OLLAMA_CONTEXT OLLAMA_OUTPUT; do
