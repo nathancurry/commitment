@@ -24,7 +24,7 @@ for repo in commitment lab; do
     git -C "$TMP/$repo" -c user.name=Fixture -c user.email=fixture@example.invalid \
         commit -q --allow-empty -m fixture
 done
-cp "$ROOT/run.sh" "$ROOT/secret-broker.py" "$ROOT/commitment-secret.py" \
+cp "$ROOT/run.sh" "$ROOT/inbox-context.sh" "$ROOT/secret-broker.py" "$ROOT/commitment-secret.py" \
     "$ROOT/prompt.txt" "$ROOT/session-outcome.sh" "$ROOT/commitment-log.sh" "$TMP/runtime/"
 cat >"$TMP/config.env" <<EOF
 COMMITMENT_REPO=$TMP/commitment

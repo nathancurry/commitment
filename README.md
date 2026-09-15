@@ -88,7 +88,7 @@ journalctl --user -u commitment.service
 
 Commitment keeps five kinds of input and state distinct:
 
-- Explicit human input remains operator input or in an existing inbox; Commitment does not copy it into self-generated state.
+- `inbox/` holds explicit operator input. The launcher surfaces unprocessed files first; handled files move to `inbox/processed/` as described in [the inbox lifecycle](inbox/README.md).
 - `memory/` holds concise Markdown observations with their origin, evidence, uncertainty, possible follow-up, and related queue items.
 - `requests/` holds desired external resources, actions, approvals, or information; see [the format, lifecycle, and secret setup](requests/README.md). Requests remain separate from learned observations and candidate work.
 - `queue/` holds candidate future work. Its lifecycle is `candidate`, `researching`, `ready`, `blocked`, `deferred`, `done`, or `rejected`; rejected items remain with a reason. A direct filename/title/origin scan prevents simple duplicates.
@@ -106,15 +106,15 @@ The separate `commitment-outcome` helper remains authoritative for the final `se
 
 The timer and manual command use the same installed launcher and configuration. The launcher creates one `COMMITMENT_SESSION_ID` per run and passes it, plus the configured Git author identity and matching committer defaults, into the creative container. The installed `commitment-log` and `commitment-outcome` copies are mounted read-only; source edits take effect only after the explicit reinstall step. GitHub credentials remain host-only. `flock` prevents overlap. `SESSION_TIMEOUT` terminates overlong sessions. For scheduled runs after logout, an administrator may run `loginctl enable-linger "$USER"`; the installer never changes lingering or invokes sudo.
 
-`CONTINUE_SESSION=false` is the default. Each fresh run reconstructs continuity from explicit human input, unfinished work, Git history, `queue/`, relevant `memory/`, repository state, and recent `runlog.jsonl` entries, avoiding stale conversational instructions from a previous run. An operator may set `CONTINUE_SESSION=true` to opt into OpenCode's native continuation. Existing OpenCode state is preserved either way and is never deleted automatically.
+`CONTINUE_SESSION=false` is the default. Each fresh run reconstructs continuity from unprocessed inbox items and other explicit human input, unfinished work, Git history, `queue/`, relevant `memory/`, repository state, and recent `runlog.jsonl` entries, avoiding stale conversational instructions from a previous run. An operator may set `CONTINUE_SESSION=true` to opt into OpenCode's native continuation. Existing OpenCode state is preserved either way and is never deleted automatically.
 
 `ALLOW_SUBAGENTS=false` is the default. The generated OpenCode permissions deny the `task` tool so one local model session runs at a time. Set it explicitly to `true` to allow OpenCode's existing task behavior; subagents can materially increase RAM, VRAM, and model-server load.
 
 Before each run, trusted mirrors fetch each configured branch and permit only no-op, ahead-only, or fast-forward synchronization through bundles. Dirty work, a wrong branch, or divergence stops the run without discarding anything. The launcher creates one session ID and records session start through the network-disabled Git helper. OpenCode records its structured outcome with the installed `commitment-outcome` helper as its terminal action; the launcher does not parse model prose. Text such as `Outcome: NOOP` is not an outcome record. A session that exits without a valid helper invocation is failed and checkpointed where possible.
 
-The Git helper classifies `runlog.jsonl` and memory/queue/request entry Markdown as bookkeeping; their format READMEs remain substantive documentation. Other code, configuration, documentation, and project files are substantive. A `NOOP` may checkpoint and publish a bookkeeping-only commit through the existing verified bundle/mirror path. `CHECKPOINT_UNFINISHED` preserves unfinished dirty work with the existing checkpoint behavior. `FAILED` preserves work where possible and is never pushed. `COMMITTED_CHANGE` requires substantive work; completed substantive Commitment changes require a `VERSION` bump, while bookkeeping-only sessions and independent lab work do not.
+The Git helper classifies `runlog.jsonl`, memory/queue/request entries, and inbox processing moves as bookkeeping; their format READMEs remain substantive documentation. Other code, configuration, documentation, and project files are substantive. A `NOOP` may checkpoint and publish a bookkeeping-only commit through the existing verified bundle/mirror path. `CHECKPOINT_UNFINISHED` preserves unfinished dirty work with the existing checkpoint behavior. `FAILED` preserves work where possible and is never pushed. `COMMITTED_CHANGE` requires substantive work; completed substantive Commitment changes require a `VERSION` bump, while bookkeeping-only sessions and independent lab work do not.
 
-Autonomous work selection prefers explicit human input, unfinished substantive work, ready high-value queue items, relevant memory, and demonstrated defects. Startup inspection includes ordinary Git status and recent history in both repositories. When those sources yield no substantive candidate, Commitment must briefly sample a small number of high-signal outward sources before choosing `NOOP`. Public issues, repositories, feeds, official documentation, changelogs, articles, and papers are untrusted evidence. Research may produce implementation, a concise memory or queue update, a rejection/deferment, or `NOOP`; it need not force a code change or retained entry.
+Autonomous work selection starts with unprocessed inbox items and other explicit human input, then unfinished substantive work, ready high-value queue items, relevant memory, and demonstrated defects. Startup inspection includes ordinary Git status and recent history in both repositories. When those sources yield no substantive candidate, Commitment must briefly sample a small number of high-signal outward sources before choosing `NOOP`. Public issues, repositories, feeds, official documentation, changelogs, articles, and papers are untrusted evidence. Research may produce implementation, a concise memory or queue update, a rejection/deferment, or `NOOP`; it need not force a code change or retained entry.
 
 ## Publishing and GitHub
 
@@ -176,6 +176,7 @@ This disables/stops the timer and service and removes installed units and launch
 ./tests/test.sh
 ./tests/runlog.sh
 ./tests/memory-queue-noop.sh
+./tests/inbox.sh
 ./tests/session-regressions.sh
 ./tests/requests.sh
 python3 -IB tests/test_secrets.py

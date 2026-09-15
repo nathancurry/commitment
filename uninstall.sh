@@ -14,7 +14,7 @@ fi
 
 rm -f "$UNIT_DIR/commitment.timer" "$UNIT_DIR/commitment.service" "$LAUNCHER"
 rm -f "$LIBEXEC_DIR/run.sh" "$LIBEXEC_DIR/publish.sh" "$LIBEXEC_DIR/agent-git.sh"
-rm -f "$LIBEXEC_DIR/session-outcome.sh" "$LIBEXEC_DIR/commitment-log.sh" "$LIBEXEC_DIR/prompt.txt"
+rm -f "$LIBEXEC_DIR/session-outcome.sh" "$LIBEXEC_DIR/commitment-log.sh" "$LIBEXEC_DIR/inbox-context.sh" "$LIBEXEC_DIR/prompt.txt"
 rm -f "$LIBEXEC_DIR/secret-broker.py" "$LIBEXEC_DIR/commitment-secret.py" "$LIBEXEC_DIR/requirements-secrets.txt"
 rmdir "$LIBEXEC_DIR" 2>/dev/null || true
 if command -v systemctl >/dev/null; then

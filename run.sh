@@ -13,6 +13,7 @@ RUNTIME_DIR=$(CDPATH= cd -- "$(dirname -- "$runtime_path")" && pwd)
 PUBLISHER=${COMMITMENT_PUBLISHER:-"$RUNTIME_DIR/publish.sh"}
 OUTCOME_HELPER=${COMMITMENT_OUTCOME_HELPER:-"$RUNTIME_DIR/session-outcome.sh"}
 LOG_HELPER=${COMMITMENT_LOG_HELPER:-"$RUNTIME_DIR/commitment-log.sh"}
+INBOX_CONTEXT_HELPER="$RUNTIME_DIR/inbox-context.sh"
 
 [[ -r "$CONFIG_FILE" ]] || die "configuration not found: $CONFIG_FILE"
 # shellcheck source=/dev/null
@@ -38,6 +39,7 @@ GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}
 [[ -x "$PUBLISHER" ]] || die "trusted publisher not installed: $PUBLISHER"
 [[ -x "$OUTCOME_HELPER" ]] || die "session outcome helper not installed: $OUTCOME_HELPER"
 [[ -x "$LOG_HELPER" ]] || die "runlog helper not installed: $LOG_HELPER"
+[[ -x "$INBOX_CONTEXT_HELPER" ]] || die "inbox context helper not installed: $INBOX_CONTEXT_HELPER"
 
 mkdir -p -m 700 "$STATE_DIR" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data"
 # Cleanup takes the same lock before inspecting residue; active sessions win.
@@ -128,6 +130,10 @@ mv -f "$tmp_config" "$STATE_DIR/opencode-config/opencode.json"
 prompt_file="$RUNTIME_DIR/prompt.txt"
 [[ -r "$prompt_file" ]] || die "session prompt not found: $prompt_file"
 prompt=$(<"$prompt_file")
+inbox_context=$("$INBOX_CONTEXT_HELPER" "$COMMITMENT_REPO")
+if [[ -n $inbox_context ]]; then
+    prompt="$inbox_context"$'\n\n'"$prompt"
+fi
 COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-start commitment
 
 continue_args=()

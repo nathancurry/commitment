@@ -11,7 +11,7 @@ assert_contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain $2"; }
 mkdir -p "$TMP/fakebin" "$TMP/config" "$TMP/state" "$TMP/commitment/.git" "$TMP/lab/.git"
 chmod 700 "$TMP/state"
 mkdir -p "$TMP/runtime"
-cp "$ROOT/run.sh" "$ROOT/secret-broker.py" "$ROOT/commitment-secret.py" "$ROOT/prompt.txt" "$TMP/runtime/"
+cp "$ROOT/run.sh" "$ROOT/inbox-context.sh" "$ROOT/secret-broker.py" "$ROOT/commitment-secret.py" "$ROOT/prompt.txt" "$TMP/runtime/"
 bash "$ROOT/tests/fixtures/setup-sdk.sh" "$TMP/runtime"
 export FAKE_SDK_DIR="$TMP/fakebin"
 touch "$TMP/commitment/runlog.jsonl" "$TMP/lab/runlog.jsonl"

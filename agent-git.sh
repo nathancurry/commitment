@@ -45,8 +45,8 @@ append_runlog() {
 is_bookkeeping_path() {
     [[ ${AGENT_REPO_KIND:-} == commitment ]] || return 1
     case $1 in
-        memory/README.md|queue/README.md|requests/README.md) return 1 ;;
-        runlog.jsonl|memory/*.md|queue/*.md|requests/*.md) return 0 ;;
+        memory/README.md|queue/README.md|requests/README.md|inbox/README.md) return 1 ;;
+        runlog.jsonl|memory/*.md|queue/*.md|requests/*.md|inbox/*) return 0 ;;
         *) return 1 ;;
     esac
 }
