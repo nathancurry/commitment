@@ -46,7 +46,7 @@ is_bookkeeping_path() {
     [[ ${AGENT_REPO_KIND:-} == commitment ]] || return 1
     case $1 in
         memory/README.md|queue/README.md|requests/README.md|inbox/README.md) return 1 ;;
-        runlog.jsonl|memory/*.md|queue/*.md|requests/*.md|inbox/*) return 0 ;;
+        runlog.jsonl|memory/*.md|queue/*.md|requests/*.md) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -58,8 +58,16 @@ bookkeeping_domain() {
         memory/*.md) printf '%s\n' memory ;;
         queue/*.md) printf '%s\n' queue ;;
         requests/*.md) printf '%s\n' requests ;;
-        inbox/*) printf '%s\n' inbox ;;
     esac
+}
+
+is_unchanged_inbox_processing_move() {
+    local status=$1 source=$2 destination=$3 item
+    [[ ${AGENT_REPO_KIND:-} == commitment && $status == R100 ]] || return 1
+    [[ $source == inbox/* ]] || return 1
+    item=${source#inbox/}
+    [[ -n $item && $item != */* && $item != README.md ]] || return 1
+    [[ $destination == "inbox/processed/$item" ]]
 }
 
 is_versioned_path() {
@@ -92,8 +100,14 @@ classify_diff() {
         case $status in
             R*|C*)
                 IFS= read -r -d '' destination || die "malformed Git rename record"
+                if is_unchanged_inbox_processing_move "$status" "$source" "$destination"; then
+                    continue
+                fi
                 classify_path "$source" "$status"
                 classify_path "$destination" "$status"
+                if [[ $status == R* && $status != R100 ]]; then
+                    HAS_SUBSTANTIVE=1
+                fi
                 source_domain=$(bookkeeping_domain "$source" || true)
                 destination_domain=$(bookkeeping_domain "$destination" || true)
                 if [[ -n $source_domain && -n $destination_domain &&
@@ -107,21 +121,27 @@ classify_diff() {
 }
 
 classify_changes() {
-    local path
+    local temporary_index_dir temporary_index diff_record
     HAS_CHANGES=0
     HAS_SUBSTANTIVE=0
     HAS_VERSIONED_SUBSTANTIVE=0
     HAS_DIRTY=0
-    classify_diff < <(git -C "$repo" diff --name-status -z --find-renames "$AGENT_BASE_HEAD..HEAD")
     if [[ -n $(git -C "$repo" status --porcelain) ]]; then
         HAS_DIRTY=1
     fi
-    classify_diff < <(git -C "$repo" diff --name-status -z --find-renames)
-    classify_diff < <(git -C "$repo" diff --cached --name-status -z --find-renames)
-    while IFS= read -r -d '' path; do
-        HAS_CHANGES=1
-        classify_path "$path" A
-    done < <(git -C "$repo" ls-files --others --exclude-standard -z)
+    temporary_index_dir=$(mktemp -d)
+    temporary_index="$temporary_index_dir/index"
+    diff_record="$temporary_index_dir/diff"
+    git -C "$repo" diff --name-status -z --find-renames \
+        "$AGENT_BASE_HEAD..HEAD" >"$diff_record"
+    classify_diff <"$diff_record"
+    GIT_INDEX_FILE="$temporary_index" git -C "$repo" read-tree HEAD
+    GIT_INDEX_FILE="$temporary_index" git -C "$repo" add -A
+    GIT_INDEX_FILE="$temporary_index" git -C "$repo" diff --cached \
+        --name-status -z --find-renames "$AGENT_BASE_HEAD" >"$diff_record"
+    classify_diff <"$diff_record"
+    rm -f "$temporary_index" "$diff_record"
+    rmdir "$temporary_index_dir"
 }
 
 commit_dirty() {

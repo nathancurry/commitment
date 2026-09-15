@@ -39,89 +39,83 @@ record_outcome() {
         "$ROOT/session-outcome.sh" "$outcome" "Synthetic $outcome classifier fixture"
 }
 
-# Exact regression: both moves and the runlog remain dirty for trusted finalization.
-repo="$TMP/exact"
-new_repo "$repo"
-printf '%s\n' input >"$repo/inbox/item"
-printf '%s\n' work >"$repo/requests/work.md"
-git -C "$repo" add -A
-git -C "$repo" commit -m initial >/dev/null
-base=$(git -C "$repo" rev-parse HEAD)
-start_session "$repo" exact-regression
-git -C "$repo" mv inbox/item inbox/processed/item
-git -C "$repo" mv requests/work.md queue/work.md
-record_outcome "$repo" exact-regression COMMITTED_CHANGE
-[[ $(COMMITMENT_ROOT="$repo" COMMITMENT_SESSION_ID=exact-regression \
-    "$ROOT/session-outcome.sh" --read) == COMMITTED_CHANGE ]] || fail 'COMMITTED_CHANGE was not accepted'
-result=$(finalize "$repo" "$base" COMMITTED_CHANGE)
-[[ $result == *substantive=1* ]] || fail 'cross-domain R100 move was not substantive'
-[[ $(git -C "$repo" log -1 --format=%s) == 'chore: record session bookkeeping' ]] ||
-    fail 'normal COMMITTED_CHANGE finalization path was not used'
-[[ $(git -C "$repo" diff-tree --name-status -r -M --no-commit-id HEAD) == *$'R100\trequests/work.md\tqueue/work.md'* ]] ||
-    fail 'trusted finalization did not retain the R100 move'
-[[ $(<"$repo/VERSION") == 7.8.9 ]] || fail 'durable-state move required a release bump'
-
-# A: inbox processing plus runlog remains valid NOOP bookkeeping.
+# A: an unchanged, same-name move from inbox/ to inbox/processed/ is bookkeeping.
 repo="$TMP/inbox-noop"
 new_repo "$repo"
-printf '%s\n' input >"$repo/inbox/item"
+printf '%s\n' input >"$repo/inbox/foo.md"
 git -C "$repo" add -A
 git -C "$repo" commit -m initial >/dev/null
 base=$(git -C "$repo" rev-parse HEAD)
 start_session "$repo" inbox-noop
-git -C "$repo" mv inbox/item inbox/processed/item
+mv "$repo/inbox/foo.md" "$repo/inbox/processed/foo.md"
 COMMITMENT_ROOT="$repo" COMMITMENT_SESSION_ID=inbox-noop "$ROOT/commitment-log.sh" \
     research 'Synthetic research fixture' source=https://example.invalid result=none
 record_outcome "$repo" inbox-noop NOOP
 result=$(finalize "$repo" "$base" NOOP)
 [[ $result == *substantive=0* ]] || fail 'inbox processing became substantive'
+git -C "$repo" diff-tree --name-status -r -M --no-commit-id HEAD |
+    grep -Fq $'R100\tinbox/foo.md\tinbox/processed/foo.md' ||
+    fail 'unchanged inbox processing was not detected as R100'
 
-assert_cross_domain() {
-    local name=$1 source=$2 destination=$3
+assert_substantive_move() {
+    local name=$1 source=$2 destination=$3 expected_status=$4
     local repo="$TMP/$name" base result
     new_repo "$repo"
-    printf '%s\n' identical >"$repo/$source"
+    if [[ $expected_status == R052 ]]; then
+        for number in {001..100}; do
+            printf 'line-%s-abcdefghij\n' "$number"
+        done >"$repo/$source"
+    else
+        printf '%s\n' identical >"$repo/$source"
+    fi
     git -C "$repo" add -A
     git -C "$repo" commit -m initial >/dev/null
     base=$(git -C "$repo" rev-parse HEAD)
-    git -C "$repo" mv "$source" "$destination"
+    mv "$repo/$source" "$repo/$destination"
+    if [[ $expected_status == R052 ]]; then
+        sed -i '53,100s/abcdefghij/klmnopqrst/' "$repo/$destination"
+    fi
     result=$(finalize "$repo" "$base" COMMITTED_CHANGE)
     [[ $result == *substantive=1* ]] || fail "$source -> $destination was not substantive"
     git -C "$repo" diff-tree --name-status -r -M --no-commit-id HEAD |
-        grep -Fq $'R100\t' || fail "$source -> $destination was not detected as R100"
+        grep -Fq "$expected_status"$'\t'"$source"$'\t'"$destination" ||
+        fail "$source -> $destination was not detected as $expected_status"
 }
 
-# B/C: direction does not erase cross-domain meaning.
-assert_cross_domain requests-to-queue requests/foo.md queue/foo.md
-assert_cross_domain queue-to-requests queue/foo.md requests/foo.md
-assert_cross_domain memory-to-queue memory/foo.md queue/foo.md
+# B-G: content-changing inbox moves and all cross-domain moves are substantive.
+# Plain mv deliberately leaves the destination untracked until trusted finalization.
+assert_substantive_move changed-inbox inbox/foo.md inbox/processed/foo.md R052
+assert_substantive_move queue-archive queue/foo.md inbox/processed/foo.md R100
+assert_substantive_move changed-queue-archive queue/foo.md inbox/processed/foo.md R052
+assert_substantive_move request-archive requests/foo.md inbox/processed/foo.md R100
+assert_substantive_move memory-archive memory/foo.md inbox/processed/foo.md R100
+assert_substantive_move requests-to-queue requests/foo.md queue/foo.md R100
+assert_substantive_move queue-to-requests queue/foo.md requests/foo.md R100
+assert_substantive_move memory-to-queue memory/foo.md queue/foo.md R100
+assert_substantive_move renamed-inbox inbox/foo.md inbox/processed/bar.md R100
+assert_substantive_move changed-memory-rename memory/foo.md memory/bar.md R052
 
-# A scored rename still carries both semantic domains.
-repo="$TMP/scored-rename"
+# H: normal inbox processing does not hide a substantive queue lifecycle update.
+repo="$TMP/inbox-and-queue"
 new_repo "$repo"
-for number in {1..20}; do printf 'line %s\n' "$number"; done >"$repo/memory/foo.md"
+printf '%s\n' input >"$repo/inbox/foo.md"
+printf '%s\n' $'---\nstatus: candidate\n---\n\n## Disposition' >"$repo/queue/foo.md"
 git -C "$repo" add -A
 git -C "$repo" commit -m initial >/dev/null
 base=$(git -C "$repo" rev-parse HEAD)
-git -C "$repo" mv memory/foo.md queue/foo.md
-sed -i '1s/.*/changed/' "$repo/queue/foo.md"
+start_session "$repo" inbox-and-queue
+mv "$repo/inbox/foo.md" "$repo/inbox/processed/foo.md"
+sed -i 's/status: candidate/status: rejected/' "$repo/queue/foo.md"
+record_outcome "$repo" inbox-and-queue COMMITTED_CHANGE
+[[ $(COMMITMENT_ROOT="$repo" COMMITMENT_SESSION_ID=inbox-and-queue \
+    "$ROOT/session-outcome.sh" --read) == COMMITTED_CHANGE ]] || fail 'COMMITTED_CHANGE was not accepted'
 result=$(finalize "$repo" "$base" COMMITTED_CHANGE)
-[[ $result == *substantive=1* ]] || fail 'cross-domain Rnn move was not substantive'
-git -C "$repo" diff-tree --name-status -r -M --no-commit-id HEAD |
-    grep -Eq '^R0[0-9]{2}[[:space:]]' || fail 'modified cross-domain move was not detected as Rnn'
+[[ $result == *substantive=1* ]] || fail 'queue lifecycle update was hidden by inbox processing'
+[[ $(git -C "$repo" log -1 --format=%s) == 'chore: record session bookkeeping' ]] ||
+    fail 'trusted COMMITTED_CHANGE finalization path changed'
+[[ $(<"$repo/VERSION") == 7.8.9 ]] || fail 'durable-state update required a release bump'
 
-# D: an in-domain processed-inbox rename retains bookkeeping behavior.
-repo="$TMP/processed-rename"
-new_repo "$repo"
-printf '%s\n' input >"$repo/inbox/processed/old"
-git -C "$repo" add -A
-git -C "$repo" commit -m initial >/dev/null
-base=$(git -C "$repo" rev-parse HEAD)
-git -C "$repo" mv inbox/processed/old inbox/processed/new
-result=$(finalize "$repo" "$base" NOOP)
-[[ $result == *substantive=0* ]] || fail 'inbox/processed rename became substantive'
-
-# E: ordinary queue/request content modifications remain substantive.
+# Ordinary queue/request content modifications remain substantive.
 for domain in queue requests; do
     repo="$TMP/modified-$domain"
     new_repo "$repo"
@@ -134,4 +128,4 @@ for domain in queue requests; do
     [[ $result == *substantive=1* ]] || fail "$domain content modification was not substantive"
 done
 
-printf '%s\n' 'ok - semantic durable-state rename and content classification'
+printf '%s\n' 'ok - exact inbox processing and substantive durable-state move classification'

@@ -1,38 +1,27 @@
-# Request: Broaden Request Format to Support Questions and Interaction
+---
+title: Broaden request format to support questions and interaction
+status: rejected
+priority: medium
+origin: inbox/processed/2026-09-15-operator-requests.md
+created: 2026-09-15
+updated: 2026-09-15
+sources: inbox/processed/2026-09-15-request-correction.md
+---
 
-## Origin
-- Requester: Operator (inbox/2026-09-15-operator-requests.md)
-- Date: 2026-09-15
-- Source: inbox/processed/2026-09-15-operator-requests.md
+## Value hypothesis
 
-## Motivation
-The current `requests/` format is designed for explicit human action but primarily supports "do something" requests. Operator notes that this misses "ask a question, propose an idea, or get feedback" - important interaction modes where the operator wants Commitment's perspective without committing to action.
+A broader request format might let Commitment ask the operator for more kinds of
+useful input.
 
-## Current Format Requirements
-From `requests/README.md`:
-1. Title with date
-2. State the desired end result
-3. Identify who owns each action item (Operator, Commitment, External)
-4. Include justification and context
-5. Lifecycle: requested, granted, completed, or cancelled
+## Next step
 
-## Proposed Improvement
-Add support for "question requests" with:
-1. Clear indication it's a question (not action)
-2. Explicit expectation: Commitment's analysis/perspective vs action
-3. Optional: follow-up actions if the analysis suggests value
+None.
 
-## Next Step
-Perform bounded outward research to verify current format is sufficient, or identify smallest coherent change needed. Review similar systems for inspiration.
+## Disposition
 
-## Follow-up
-Research found existing formats (AgentLux hire requests, WorkProtocol jobs, AgentWork outcomes) are action-oriented with clear schemata. The current Commitment requests/ format adequately addresses explicit human action; questions/analysis are a distinct interaction mode and require a broader "request" concept.
-
-## Proposed Format Extension
-Add "interaction requests" alongside "action requests:"
-1. Type: question, analysis, feedback
-2. Expected outcome: Commitment's perspective (not implementation)
-3. Optional follow-up: conditional action if analysis suggests value
-4. Clear lifecycle: requested, answered, completed or cancelled
-
-Minimal change: extend existing format with a "requestType" field (action|question) and keep other fields optional where not needed.
+Rejected after operator correction. `requests/` records things Commitment wants
+from an external actor, including information, ideas, feedback, decisions,
+permissions, actions, resources, access, and clarification. The existing format
+already supports that direction; operator-to-Commitment input belongs in the
+inbox or direct interaction. The earlier proposed `requestType` field addressed
+the reversed direction and is not justified.

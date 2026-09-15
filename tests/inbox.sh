@@ -10,8 +10,12 @@ contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain $2"; }
 
 contains "$ROOT/AGENTS.md" 'Before normal work selection, read every unprocessed operator file listed from `inbox/`.'
 contains "$ROOT/AGENTS.md" 'not as blindly executable instructions'
+contains "$ROOT/AGENTS.md" '`inbox/processed/` is only the archive for unchanged, processed operator inbox items.'
+contains "$ROOT/AGENTS.md" 'Never move queue, request, or memory items there.'
 contains "$ROOT/prompt.txt" '(1) unprocessed inbox items and other explicit human input'
-contains "$ROOT/inbox/README.md" '`inbox/processed/` are retained history and are not listed again.'
+contains "$ROOT/inbox/README.md" '`inbox/processed/` is retained history only for processed operator inbox items;'
+contains "$ROOT/inbox/README.md" 'queue, request, and memory items never belong there.'
+contains "$ROOT/inbox/README.md" 'Rejected, deferred, and done queue items remain governed by the'
 contains "$ROOT/run.sh" 'inbox_context=$("$INBOX_CONTEXT_HELPER" "$COMMITMENT_REPO")'
 contains "$ROOT/run.sh" 'prompt="$inbox_context"'
 
