@@ -36,6 +36,7 @@ grep -Fxq 'ALLOW_SUBAGENTS=false' "$ROOT/config.example.env" || fail "subagents 
 "$ROOT/tests/runlog.sh"
 "$ROOT/tests/memory-queue-noop.sh"
 "$ROOT/tests/queue-discovery.sh"
+"$ROOT/tests/queue-evaluation.sh"
 "$ROOT/tests/inbox.sh"
 "$ROOT/tests/git-change-classifier.sh"
 "$ROOT/tests/session-regressions.sh"

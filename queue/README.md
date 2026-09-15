@@ -38,3 +38,21 @@ filename prefixes such as `candidate-`, `ready-`, or `blocked-` have no lifecycl
 Candidate, researching, and ready items may warrant evaluation, but existence alone
 does not require action. Blocked, deferred, done, and rejected items remain retained
 history and are not fresh actionable work.
+
+Discovery is not meaningful evaluation. Merely enumerating or reading an item as context
+does not require changing it. Meaningful evaluation starts when a session selects an
+actionable item as active work, researches it specifically, investigates its next
+step, reasons toward whether to pursue it, or starts derived work. A session may
+select one actionable item without changing every other actionable item it saw.
+
+Meaningful evaluation must leave durable progress in the selected item's file before
+the session concludes. Use an appropriate lifecycle transition, or retain the status
+while adding concrete evidence/findings, narrowing the value hypothesis, materially
+refining the next step, or recording an explicit progress/disposition note. Changing
+only `updated`, formatting, or other meaningless churn does not qualify. Same-status
+`candidate` progress must make the next evaluation materially different. Research
+performed specifically for a selected candidate must feed its conclusion back into
+that item. Leaving such an item byte-identical and then concluding `NOOP` is invalid;
+an item rejected or deferred after evaluation remains in this directory with the
+reason. Initial inspection may instead leave an item explicitly unselected and
+unchanged while normal work selection continues.

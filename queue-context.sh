@@ -31,3 +31,6 @@ for item in "${items[@]}"; do
     printf -- '- %q (status: %s)\n' "${item#"$repo/"}" "$status"
 done
 printf '%s\n' 'Inspect these items before falling through to outward research. Their presence does not require action: evaluate their content, evidence, priority, and status; blocked, deferred, done, and rejected items are not fresh actionable work.'
+printf '%s\n' 'Merely surfacing or reading an item is not meaningful evaluation and does not force a change. Meaningful evaluation begins when you select an actionable item as active work, research it specifically, investigate its next step, reason whether to pursue it, or start derived work.'
+printf '%s\n' 'Before concluding after meaningful evaluation, update that same item with a lifecycle transition or substantive same-status evidence, findings, value/next-step refinement, or progress/disposition note. Timestamp-only or formatting churn is insufficient; selected/evaluated plus byte-identical plus NOOP is prohibited.'
+printf '%s\n' 'You may leave unselected items unchanged and may select one without mutating every actionable item. Candidate-specific research is allowed before generic outward discovery, but its conclusion must feed back into the selected item.'
