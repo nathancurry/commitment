@@ -37,6 +37,8 @@ grep -Fxq 'ALLOW_SUBAGENTS=false' "$ROOT/config.example.env" || fail "subagents 
 "$ROOT/tests/memory-queue-noop.sh"
 "$ROOT/tests/session-regressions.sh"
 "$ROOT/tests/terminal-outcome.sh"
+"$ROOT/tests/requests.sh"
+python3 -IB "$ROOT/tests/test_secrets.py"
 shared_token_key=GITHUB_TOKEN
 shared_token_key+=_FILE
 commitment_remote_key=COMMITMENT_
@@ -196,6 +198,10 @@ sed -i \
     "$CONFIG"
 assert_file "$HOME/.local/bin/commitment"
 assert_file "$HOME/.local/libexec/commitment/commitment-log.sh"
+for helper in secret-broker.py commitment-secret.py; do
+    assert_file "$HOME/.local/libexec/commitment/$helper"
+    [[ ! "$ROOT/$helper" -ef "$HOME/.local/libexec/commitment/$helper" ]] || fail "secret helper is not an installed copy"
+done
 [[ -x "$HOME/.local/libexec/commitment/commitment-log.sh" ]] || fail "installed runlog helper is not executable"
 [[ ! -L "$HOME/.local/libexec/commitment/commitment-log.sh" ]] || fail "installed runlog helper follows source edits"
 [[ ! "$ROOT/commitment-log.sh" -ef "$HOME/.local/libexec/commitment/commitment-log.sh" ]] ||
@@ -309,12 +315,14 @@ pass "operator-selected Ollama model and limits"
 [[ $(git -C "$TMP/commitment" log -1 --format=%s) == checkpoint:* ]] || fail "commitment checkpoint missing"
 [[ $(git -C "$TMP/lab" log -1 --format=%s) == checkpoint:* ]] || fail "lab checkpoint missing"
 [[ $("$TMP/lab/small-program") == revised ]] || fail "program revision did not survive"
-mount_count=$(grep -cE ':/workspace/commitment(-lab)?:rw,Z|:/home/commitment/\.config/opencode/opencode.json:ro,Z|:/home/commitment/\.local/share/opencode:rw,Z|:/usr/local/bin/commitment-(outcome|log):ro,Z' "$FAKE_PODMAN_ARGS")
-[[ $mount_count -eq 6 ]] || fail "expected exactly six intended mounts"
+mount_count=$(grep -cE ':/workspace/commitment(-lab)?:rw,Z|:/home/commitment/\.config/opencode/opencode.json:ro,Z|:/home/commitment/\.local/share/opencode:rw,Z|:/usr/local/bin/commitment-(outcome|log|secret):ro,Z' "$FAKE_PODMAN_ARGS")
+[[ $mount_count -eq 7 ]] || fail "expected exactly seven intended mounts with secrets disabled"
 grep -Fxq "$HOME/.local/libexec/commitment/commitment-log.sh:/usr/local/bin/commitment-log:ro,Z" "$FAKE_PODMAN_ARGS" ||
     fail "installed runlog helper was not mounted read-only"
 ! grep -Fq "$HOME:" "$FAKE_PODMAN_ARGS" || fail "home directory was mounted"
 ! grep -Fq 'GITHUB_TOKEN' "$FAKE_PODMAN_ARGS" || fail "GitHub credential was passed"
+! grep -Eq 'BWS_ACCESS_TOKEN|BITWARDEN_|bitwarden-secrets-token' "$FAKE_PODMAN_ARGS" || fail "Bitwarden credential/config was passed"
+grep -Fxq -- '--http-proxy=false' "$FAKE_PODMAN_ARGS" || fail "creative proxy forwarding enabled"
 pass "configuration generation, both workspaces, checkpoints, program revision, and mount boundary"
 
 exec 8>"$XDG_DATA_HOME/commitment/run.lock"

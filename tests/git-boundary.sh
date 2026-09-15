@@ -87,7 +87,7 @@ publisher() {
 container_git() {
     local repo=$1
     shift
-    podman run --rm --network=none --security-opt=no-new-privileges \
+    podman run --http-proxy=false --rm --network=none --security-opt=no-new-privileges \
         -v "$TMP/$repo:/workspace/repo:rw,Z" -w /workspace/repo \
         "$IMAGE" git "$@"
 }
@@ -101,7 +101,7 @@ pass "both repositories synchronize through trusted mirrors without host executi
 
 noop_base=$(container_git commitment rev-parse HEAD)
 COMMITMENT_SESSION_ID=boundary-noop publisher session-start commitment
-podman run --rm --network=none --security-opt=no-new-privileges \
+podman run --http-proxy=false --rm --network=none --security-opt=no-new-privileges \
     -v "$TMP/commitment:/workspace/commitment:rw,Z" \
     -v "$ROOT/commitment-log.sh:/usr/local/bin/commitment-log:ro,Z" \
     -v "$ROOT/session-outcome.sh:/usr/local/bin/commitment-outcome:ro,Z" \

@@ -143,7 +143,7 @@ run_agent_git() {
         mount_args=(-v "$transfer:$3:$4,Z")
         container_arg=("$5")
     fi
-    podman run --rm --network=none --security-opt=no-new-privileges \
+    podman run --http-proxy=false --rm --network=none --security-opt=no-new-privileges \
         --pids-limit=128 --memory=1g --cpus=2 \
         -v "$REPO:/workspace/repo:rw,Z" \
         -v "$AGENT_GIT:/usr/local/libexec/commitment-agent-git:ro,Z" \

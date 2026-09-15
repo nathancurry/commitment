@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec /usr/bin/python3 -IB "$(dirname -- "$0")/fake-sdk.py" "$@"

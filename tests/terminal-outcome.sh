@@ -9,6 +9,11 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 assert_contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain $2"; }
 
 mkdir -p "$TMP/fakebin" "$TMP/config" "$TMP/state" "$TMP/commitment/.git" "$TMP/lab/.git"
+chmod 700 "$TMP/state"
+mkdir -p "$TMP/runtime"
+cp "$ROOT/run.sh" "$ROOT/secret-broker.py" "$ROOT/commitment-secret.py" "$ROOT/prompt.txt" "$TMP/runtime/"
+bash "$ROOT/tests/fixtures/setup-sdk.sh" "$TMP/runtime"
+export FAKE_SDK_DIR="$TMP/fakebin"
 touch "$TMP/commitment/runlog.jsonl" "$TMP/lab/runlog.jsonl"
 
 cat >"$TMP/fake-publisher" <<'EOF'
@@ -61,13 +66,24 @@ case ${1:-} in
 esac
 
 session_id=''
+ipc_dir=''
+secret_client=''
 previous=''
 for argument in "$@"; do
     if [[ $previous == -e && $argument == COMMITMENT_SESSION_ID=* ]]; then
         session_id=${argument#COMMITMENT_SESSION_ID=}
     fi
+    if [[ $previous == -v ]]; then
+        case $argument in
+            *:/run/commitment-secrets:ro,Z) ipc_dir=${argument%:/run/commitment-secrets:ro,Z} ;;
+            *:/usr/local/bin/commitment-secret:ro,Z) secret_client=${argument%:/usr/local/bin/commitment-secret:ro,Z} ;;
+        esac
+    fi
+    [[ $argument != *BWS_ACCESS_TOKEN* && $argument != *BITWARDEN_* && $argument != *bitwarden-token* ]] || exit 91
     previous=$argument
 done
+[[ -z ${BWS_ACCESS_TOKEN:-} && -p $ipc_dir/request && -f $secret_client ]] || exit 92
+COMMITMENT_SECRET_DIR="$ipc_dir" "$secret_client" available >/dev/null
 [[ -n $session_id ]]
 printf '%s\n' "$$" >"$FAKE_PODMAN_PID"
 printf 'running|%s\n' "$session_id" >>"$FAKE_PROCESS_LOG"
@@ -108,6 +124,8 @@ case $FAKE_AGENT_MODE in
 esac
 EOF
 chmod +x "$TMP/fake-publisher" "$TMP/fakebin/podman"
+printf '%s\n' fixture-machine-token >"$TMP/config/bitwarden-token"
+chmod 600 "$TMP/config/bitwarden-token"
 
 export FAKE_COMMITMENT_REPO="$TMP/commitment"
 export FAKE_OUTCOME_HELPER="$ROOT/session-outcome.sh"
@@ -137,6 +155,9 @@ CONTINUE_SESSION=false
 ALLOW_SUBAGENTS=false
 GIT_AUTHOR_NAME=Fixture
 GIT_AUTHOR_EMAIL=fixture@example.invalid
+BITWARDEN_SECRETS_ENABLED=true
+BITWARDEN_PROJECT_ID=11111111-1111-4111-8111-111111111111
+BITWARDEN_SECRETS_TOKEN_FILE=$TMP/config/bitwarden-token
 EOF
 }
 
@@ -151,14 +172,19 @@ reset_case() {
 }
 
 run_launcher() {
-    local output=$1
+    local output=$1 status=0
     PATH="$TMP/fakebin:$PATH" \
+        BWS_ACCESS_TOKEN=must-not-reach-podman \
         COMMITMENT_CONFIG="$TMP/config/config.env" \
         COMMITMENT_STATE_DIR="$TMP/state" \
         COMMITMENT_PUBLISHER="$TMP/fake-publisher" \
         COMMITMENT_OUTCOME_HELPER="$ROOT/session-outcome.sh" \
         COMMITMENT_LOG_HELPER="$ROOT/commitment-log.sh" \
-        "$ROOT/run.sh" >"$output" 2>&1
+        "$TMP/runtime/run.sh" >"$output" 2>&1 || status=$?
+    [[ -z $(find "$TMP/state" -maxdepth 1 \( -name 'secrets-session.*' -o -name 'bws-*' \) -print) ]] ||
+        fail "secret broker runtime state survived session completion"
+    ! grep -Fq fixture-machine-token "$output" || fail "machine token leaked into launcher output"
+    return "$status"
 }
 
 for outcome in NOOP COMMITTED_CHANGE CHECKPOINT_UNFINISHED FAILED; do
@@ -235,3 +261,30 @@ run_launcher "$TMP/nonzero.out" || status=$?
 assert_contains "$TMP/nonzero.out" 'OpenCode exited with status 42'
 assert_contains "$FAKE_PUBLISH_LOG" 'checkpoint|commitment||42'
 printf 'ok - missing outcome, timeout, and nonzero exit retain distinct failure handling\n'
+
+reset_case
+write_config 5
+printf 'BITWARDEN_SECRETS_TOKEN_FILE=%s/commitment/misplaced-token\n' "$TMP" >>"$TMP/config/config.env"
+if run_launcher "$TMP/misplaced.out"; then fail 'token path inside creative mount accepted'; fi
+[[ ! -s $FAKE_PUBLISH_LOG ]] || fail 'repository mounted before rejecting unsafe token path'
+
+reset_case
+write_config 10
+export FAKE_AGENT_MODE=timeout
+PATH="$TMP/fakebin:$PATH" COMMITMENT_CONFIG="$TMP/config/config.env" \
+    COMMITMENT_STATE_DIR="$TMP/state" COMMITMENT_PUBLISHER="$TMP/fake-publisher" \
+    COMMITMENT_OUTCOME_HELPER="$ROOT/session-outcome.sh" COMMITMENT_LOG_HELPER="$ROOT/commitment-log.sh" \
+    "$TMP/runtime/run.sh" >"$TMP/terminated.out" 2>&1 &
+launcher_pid=$!
+for ((i=0; i<100; i++)); do
+    [[ -s $FAKE_PODMAN_PID ]] && break
+    sleep 0.05
+done
+[[ -s $FAKE_PODMAN_PID ]] || fail 'launcher did not start synthetic process'
+kill -TERM "$launcher_pid"
+status=0
+wait "$launcher_pid" || status=$?
+[[ $status == 143 ]] || fail 'launcher ignored termination'
+[[ -z $(find "$TMP/state" -maxdepth 1 \( -name 'secrets-session.*' -o -name 'bws-*' \) -print) ]] ||
+    fail 'broker remained after launcher termination'
+printf 'ok - misplaced token rejected before mounts and launcher termination cleans up secret IPC\n'

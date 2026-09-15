@@ -17,6 +17,10 @@ LOG_HELPER=${COMMITMENT_LOG_HELPER:-"$RUNTIME_DIR/commitment-log.sh"}
 [[ -r "$CONFIG_FILE" ]] || die "configuration not found: $CONFIG_FILE"
 # shellcheck source=/dev/null
 source "$CONFIG_FILE"
+# The machine token is read only by the dedicated host broker from its file.
+unset BWS_ACCESS_TOKEN
+BITWARDEN_SECRETS_ENABLED=${BITWARDEN_SECRETS_ENABLED:-false}
+[[ $BITWARDEN_SECRETS_ENABLED == true || $BITWARDEN_SECRETS_ENABLED == false ]] || die "BITWARDEN_SECRETS_ENABLED must be true or false"
 
 for name in COMMITMENT_REPO COMMITMENT_BRANCH COMMITMENT_UPSTREAM_URL LAB_REPO LAB_BRANCH LAB_UPSTREAM_URL OLLAMA_ENDPOINT OLLAMA_MODEL OLLAMA_CONTEXT OLLAMA_OUTPUT SESSION_TIMEOUT PUBLISH_MODE CONTAINER_IMAGE GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL; do
     [[ -n ${!name:-} ]] || die "$name is required in $CONFIG_FILE"
@@ -35,7 +39,10 @@ GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}
 [[ -x "$OUTCOME_HELPER" ]] || die "session outcome helper not installed: $OUTCOME_HELPER"
 [[ -x "$LOG_HELPER" ]] || die "runlog helper not installed: $LOG_HELPER"
 
-mkdir -p "$STATE_DIR" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data"
+mkdir -p -m 700 "$STATE_DIR" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data"
+# Cleanup takes the same lock before inspecting residue; active sessions win.
+python3 -I "$RUNTIME_DIR/secret-broker.py" --cleanup "$STATE_DIR" ||
+    die "unsafe secret runtime state; check ownership and permissions"
 exec 9>"$STATE_DIR/run.lock"
 flock -n 9 || die "another run is active"
 COMMITMENT_SESSION_ID="$(date +'%Y%m%dT%H%M%S%z')-$$"
@@ -44,6 +51,15 @@ for value in "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR"; do
     [[ $value == /* ]] || die "repository and state paths must be absolute"
 done
 [[ $COMMITMENT_REPO != "$LAB_REPO" ]] || die "repository paths must differ"
+if [[ $BITWARDEN_SECRETS_ENABLED == true ]]; then
+    command -v python3 >/dev/null || die "secret capability requires host Python 3"
+    BITWARDEN_SECRETS_TOKEN_FILE=${BITWARDEN_SECRETS_TOKEN_FILE:-$CONFIG_HOME/commitment/bitwarden-secrets-token}
+    # Reject misplaced credential paths before even the uncredentialed Git helper
+    # mounts a repository. This checks paths only; it never reads token contents.
+    python3 -I "$RUNTIME_DIR/secret-broker.py" --check-paths "$BITWARDEN_SECRETS_TOKEN_FILE" \
+        "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data" ||
+        die "Bitwarden token path must stay outside all creative mounts"
+fi
 
 "$PUBLISHER" sync commitment
 "$PUBLISHER" sync lab
@@ -120,7 +136,59 @@ if [[ ${CONTINUE_SESSION:-false} == true && -e "$STATE_DIR/session-started" ]]; 
 fi
 
 container_name="commitment-session-$$"
-container_args=(run --rm --name "$container_name"
+secret_args=()
+secret_pid=''
+secret_directory=''
+cleanup_secrets() {
+    if [[ -n $secret_pid ]]; then
+        kill -TERM "$secret_pid" 2>/dev/null || true
+        # A native SDK call may delay Python signal handling. Bound shutdown
+        # without logging backend data or depending on SDK responsiveness.
+        for (( secret_wait=0; secret_wait<30; secret_wait++ )); do
+            kill -0 "$secret_pid" 2>/dev/null || break
+            sleep 0.1
+        done
+        kill -KILL "$secret_pid" 2>/dev/null || true
+        wait "$secret_pid" 2>/dev/null || true
+        secret_pid=''
+    fi
+    if [[ -n $secret_directory ]]; then
+        rm -f -- "$secret_directory/request" "$secret_directory/response" "$secret_directory/lock"
+        rmdir -- "$secret_directory" 2>/dev/null || true
+        secret_directory=''
+    fi
+}
+trap cleanup_secrets EXIT
+stop_session() {
+    if [[ -n ${agent_pid:-} ]]; then
+        kill -TERM "$agent_pid" 2>/dev/null || true
+        wait "$agent_pid" 2>/dev/null || true
+        podman rm -f "$container_name" >/dev/null 2>&1 || true
+    fi
+    exit "$1"
+}
+trap 'stop_session 143' TERM
+trap 'stop_session 130' INT
+[[ -x "$RUNTIME_DIR/commitment-secret.py" ]] || die "secret client not installed; reinstall trusted runtime"
+if [[ $BITWARDEN_SECRETS_ENABLED == true ]]; then
+    command -v python3 >/dev/null || die "secret capability requires host Python 3"
+    [[ -x "$RUNTIME_DIR/secrets-venv/bin/python" ]] || die "secret SDK environment missing; reinstall trusted runtime"
+    secret_directory=$(mktemp -d "$STATE_DIR/secrets-session.XXXXXX")
+    BITWARDEN_SECRETS_ENABLED=true \
+        BITWARDEN_PROJECT_ID="${BITWARDEN_PROJECT_ID:-}" \
+        BITWARDEN_SECRETS_TOKEN_FILE="${BITWARDEN_SECRETS_TOKEN_FILE:-$CONFIG_HOME/commitment/bitwarden-secrets-token}" \
+        "$RUNTIME_DIR/secrets-venv/bin/python" -IB "$RUNTIME_DIR/secret-broker.py" "$secret_directory" "$$" \
+        "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data" &
+    secret_pid=$!
+    for (( attempt=0; attempt<300; attempt++ )); do
+        [[ -f "$secret_directory/lock" ]] && break
+        kill -0 "$secret_pid" 2>/dev/null || die "secret broker startup failed"
+        sleep 0.1
+    done
+    [[ -f "$secret_directory/lock" ]] || die "secret broker startup timed out"
+    secret_args=(-v "$secret_directory:/run/commitment-secrets:ro,Z")
+fi
+container_args=(run --http-proxy=false --rm --name "$container_name"
     --add-host=host.containers.internal:host-gateway
     --security-opt=no-new-privileges
     --pids-limit=512
@@ -132,6 +200,8 @@ container_args=(run --rm --name "$container_name"
     -v "$STATE_DIR/opencode-data:/home/commitment/.local/share/opencode:rw,Z"
     -v "$OUTCOME_HELPER:/usr/local/bin/commitment-outcome:ro,Z"
     -v "$LOG_HELPER:/usr/local/bin/commitment-log:ro,Z"
+    -v "$RUNTIME_DIR/commitment-secret.py:/usr/local/bin/commitment-secret:ro,Z"
+    "${secret_args[@]}"
     -w /workspace/commitment
     -e HOME=/home/commitment
     -e XDG_CONFIG_HOME=/home/commitment/.config
@@ -166,6 +236,7 @@ while kill -0 "$agent_pid" 2>/dev/null; do
 done
 wait "$agent_pid" || agent_status=$?
 podman rm -f "$container_name" >/dev/null 2>&1 || true
+cleanup_secrets
 if (( agent_status != 125 && agent_status != 126 && agent_status != 127 )); then
     touch "$STATE_DIR/session-started"
 fi

@@ -10,9 +10,9 @@ trap 'podman rm -f "$C1" "$C2" >/dev/null 2>&1 || true; podman image rm "$IMAGE"
 
 podman build --build-arg OPENCODE_VERSION=1.18.30 -t "$IMAGE" -f "$ROOT/Containerfile" "$ROOT"
 [[ $(podman info --format '{{.Host.Security.Rootless}}') == true ]]
-version=$(podman run --rm --network=none "$IMAGE" opencode --version)
+version=$(podman run --http-proxy=false --rm --network=none "$IMAGE" opencode --version)
 [[ $version == *1.18.30* ]] || { printf 'unexpected OpenCode version: %s\n' "$version" >&2; exit 1; }
-podman run --rm --network=none "$IMAGE" sh -c \
+podman run --http-proxy=false --rm --network=none "$IMAGE" sh -c \
     'python3 --version && node --version && npm --version && cc --version >/dev/null && c++ --version >/dev/null'
 printf 'ok - Containerfile builds with pinned OpenCode, Python, Node/npm, and C/C++ toolchain (%s)\n' "$version"
 
@@ -61,12 +61,12 @@ EOF
 printf '%s\n' commitment-fake-token >"$TMP/commitment-github-token"
 printf '%s\n' lab-fake-token >"$TMP/lab-github-token"
 
-podman run --rm --network=none \
+podman run --http-proxy=false --rm --network=none \
     -v "$TMP/config/opencode.json:/home/commitment/.config/opencode/opencode.json:ro,Z" \
     "$IMAGE" opencode debug config | jq -e '.model == "ollama/devstral-small-2-32k" and .permission.question == "deny" and .permission.task == "deny" and .provider.ollama.models["devstral-small-2-32k"].limit.context == 32768 and .provider.ollama.models["devstral-small-2-32k"].limit.output == 8192' >/dev/null
 printf 'ok - OpenCode accepts the generated provider and permission configuration\n'
 
-podman create --name "$C1" \
+podman create --http-proxy=false --name "$C1" \
     --add-host=host.containers.internal:host-gateway \
     --security-opt=no-new-privileges \
     -v "$TMP/commitment:/workspace/commitment:rw,Z" \
@@ -116,7 +116,7 @@ for repo in commitment lab; do
 done
 printf 'ok - configured author and committer identity applies in both workspaces without local identity configuration\n'
 
-podman run --rm --name "$C2" \
+podman run --http-proxy=false --rm --name "$C2" \
     --network=none \
     -v "$TMP/commitment:/workspace/commitment:rw,Z" \
     -v "$TMP/lab:/workspace/commitment-lab:rw,Z" \
@@ -130,3 +130,5 @@ podman run --rm --name "$C2" \
 printf 'ok - intended mounts only, no credential/socket, both workspaces writable, execution/revision and recreation persistence\n'
 
 COMMITMENT_TEST_IMAGE="$IMAGE" "$ROOT/tests/git-boundary.sh"
+COMMITMENT_TEST_IMAGE="$IMAGE" "$ROOT/tests/secrets-container.sh"
+COMMITMENT_TEST_IMAGE="$IMAGE" bash "$ROOT/tests/proxy-environment.sh"

@@ -21,7 +21,7 @@ LIBEXEC_DIR="$HOME/.local/libexec/commitment"
 BIN_DIR="$HOME/.local/bin"
 UNIT_DIR="$CONFIG_HOME/systemd/user"
 
-for command in podman git flock timeout systemctl readlink; do
+for command in podman git flock timeout systemctl readlink python3; do
     command -v "$command" >/dev/null || die "required command not found: $command"
 done
 [[ $(podman info --format '{{.Host.Security.Rootless}}') == true ]] || die "Podman must run rootless"
@@ -54,6 +54,19 @@ for name in OLLAMA_CONTEXT OLLAMA_OUTPUT; do
     [[ ${!name} =~ ^[1-9][0-9]*$ ]] || die "$name must be a positive integer"
 done
 [[ $ALLOW_SUBAGENTS == true || $ALLOW_SUBAGENTS == false ]] || die "ALLOW_SUBAGENTS must be true or false"
+BITWARDEN_SECRETS_ENABLED=${BITWARDEN_SECRETS_ENABLED:-false}
+[[ $BITWARDEN_SECRETS_ENABLED == true || $BITWARDEN_SECRETS_ENABLED == false ]] || die "BITWARDEN_SECRETS_ENABLED must be true or false"
+if [[ $BITWARDEN_SECRETS_ENABLED == true ]]; then
+    [[ ! -L "$LIBEXEC_DIR/secrets-venv" ]] || die "SDK environment must not be a symlink"
+    (umask 077; python3 -I -m venv "$LIBEXEC_DIR/secrets-venv") ||
+        die "Python venv/ensurepip is required for the host secret SDK"
+    chmod 700 "$LIBEXEC_DIR/secrets-venv"
+    "$LIBEXEC_DIR/secrets-venv/bin/python" -I -m pip --isolated install \
+        --only-binary=:all: --disable-pip-version-check --no-cache-dir \
+        -r "$SOURCE_DIR/requirements-secrets.txt"
+    "$LIBEXEC_DIR/secrets-venv/bin/python" -I -c 'from bitwarden_sdk import BitwardenClient' ||
+        die "official Bitwarden SDK cannot be imported by the trusted interpreter"
+fi
 
 if [[ ${COMMITMENT_SKIP_BUILD:-0} != 1 ]]; then
     podman build -t "$CONTAINER_IMAGE" -f "$SOURCE_DIR/Containerfile" "$SOURCE_DIR"
@@ -64,6 +77,9 @@ install -m 0755 "$SOURCE_DIR/publish.sh" "$LIBEXEC_DIR/publish.sh"
 install -m 0755 "$SOURCE_DIR/agent-git.sh" "$LIBEXEC_DIR/agent-git.sh"
 install -m 0755 "$SOURCE_DIR/session-outcome.sh" "$LIBEXEC_DIR/session-outcome.sh"
 install -m 0755 "$SOURCE_DIR/commitment-log.sh" "$LIBEXEC_DIR/commitment-log.sh"
+install -m 0755 "$SOURCE_DIR/secret-broker.py" "$LIBEXEC_DIR/secret-broker.py"
+install -m 0755 "$SOURCE_DIR/commitment-secret.py" "$LIBEXEC_DIR/commitment-secret.py"
+install -m 0644 "$SOURCE_DIR/requirements-secrets.txt" "$LIBEXEC_DIR/requirements-secrets.txt"
 install -m 0644 "$SOURCE_DIR/prompt.txt" "$LIBEXEC_DIR/prompt.txt"
 ln -sfn "$LIBEXEC_DIR/run.sh" "$BIN_DIR/commitment"
 
