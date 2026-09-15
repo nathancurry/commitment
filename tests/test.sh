@@ -35,6 +35,7 @@ grep -Fxq 'CONTINUE_SESSION=false' "$ROOT/config.example.env" || fail "native se
 grep -Fxq 'ALLOW_SUBAGENTS=false' "$ROOT/config.example.env" || fail "subagents are not disabled by default"
 "$ROOT/tests/runlog.sh"
 "$ROOT/tests/memory-queue-noop.sh"
+"$ROOT/tests/queue-discovery.sh"
 "$ROOT/tests/inbox.sh"
 "$ROOT/tests/git-change-classifier.sh"
 "$ROOT/tests/session-regressions.sh"
@@ -201,6 +202,7 @@ sed -i \
 assert_file "$HOME/.local/bin/commitment"
 assert_file "$HOME/.local/libexec/commitment/commitment-log.sh"
 assert_file "$HOME/.local/libexec/commitment/inbox-context.sh"
+assert_file "$HOME/.local/libexec/commitment/queue-context.sh"
 for helper in secret-broker.py commitment-secret.py; do
     assert_file "$HOME/.local/libexec/commitment/$helper"
     [[ ! "$ROOT/$helper" -ef "$HOME/.local/libexec/commitment/$helper" ]] || fail "secret helper is not an installed copy"
@@ -211,6 +213,8 @@ done
     fail "installed runlog helper is not an explicit copy"
 [[ ! "$ROOT/inbox-context.sh" -ef "$HOME/.local/libexec/commitment/inbox-context.sh" ]] ||
     fail "installed inbox helper is not an explicit copy"
+[[ ! "$ROOT/queue-context.sh" -ef "$HOME/.local/libexec/commitment/queue-context.sh" ]] ||
+    fail "installed queue helper is not an explicit copy"
 assert_file "$XDG_CONFIG_HOME/systemd/user/commitment.timer"
 assert_contains "$XDG_CONFIG_HOME/systemd/user/commitment.timer" 'OnCalendar=daily'
 grep -Fxq 'CONTINUE_SESSION=false' "$CONFIG" || fail "fresh install enabled native session continuation"
@@ -478,6 +482,7 @@ pass "accurate push failure with local preservation"
 [[ ! -e "$HOME/.local/libexec/commitment/commitment-log.sh" ]] || fail "runlog helper survived uninstall"
 [[ ! -e "$HOME/.local/libexec/commitment/session-outcome.sh" ]] || fail "outcome helper survived uninstall"
 [[ ! -e "$HOME/.local/libexec/commitment/inbox-context.sh" ]] || fail "inbox helper survived uninstall"
+[[ ! -e "$HOME/.local/libexec/commitment/queue-context.sh" ]] || fail "queue helper survived uninstall"
 assert_file "$XDG_CONFIG_HOME/commitment/config.env"
 assert_file "$XDG_DATA_HOME/commitment/opencode-data/preserved"
 assert_file "$TMP/lab/small-program"

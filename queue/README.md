@@ -30,3 +30,11 @@ Required when status is `done` or `rejected`; explain the result or rejection br
 ```
 
 Allowed states are `candidate`, `researching`, `ready`, `blocked`, `deferred`, `done`, and `rejected`. Keep rejected items with their reason. Before creating an item, scan filenames, normalized titles, and exact origin references; update a match instead of duplicating it. This is a direct text scan, not semantic deduplication.
+
+Discover queue items by enumerating regular files directly under `queue/`, excluding
+this `README.md` and any other files explicitly documented here as non-items. Read
+each item's `status` from its frontmatter. Filenames are descriptive identifiers;
+filename prefixes such as `candidate-`, `ready-`, or `blocked-` have no lifecycle meaning.
+Candidate, researching, and ready items may warrant evaluation, but existence alone
+does not require action. Blocked, deferred, done, and rejected items remain retained
+history and are not fresh actionable work.

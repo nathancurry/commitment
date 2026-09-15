@@ -34,7 +34,7 @@ git -C "$TMP/commitment" commit -m framework >/dev/null
 git -C "$TMP/commitment" push origin main >/dev/null
 
 mkdir -p "$TMP/runtime" "$TMP/config" "$TMP/data"
-cp "$ROOT/run.sh" "$ROOT/inbox-context.sh" "$ROOT/publish.sh" "$TMP/runtime/"
+cp "$ROOT/run.sh" "$ROOT/inbox-context.sh" "$ROOT/queue-context.sh" "$ROOT/publish.sh" "$TMP/runtime/"
 cat >"$TMP/runtime/prompt.txt" <<'EOF'
 Work only in /workspace/commitment-lab. Create probe.sh which prints "first", execute and inspect it, then revise it to print exactly "revised". Execute and inspect the revised result. Commit the completed lab change. Do nothing else.
 EOF
@@ -59,7 +59,7 @@ GIT_AUTHOR_EMAIL=commitment@localhost
 COMMITMENT_GITHUB_TOKEN_FILE=
 LAB_GITHUB_TOKEN_FILE=
 EOF
-chmod +x "$TMP/runtime/run.sh" "$TMP/runtime/inbox-context.sh" "$TMP/runtime/publish.sh"
+chmod +x "$TMP/runtime/run.sh" "$TMP/runtime/inbox-context.sh" "$TMP/runtime/queue-context.sh" "$TMP/runtime/publish.sh"
 COMMITMENT_CONFIG="$TMP/config/config.env" COMMITMENT_STATE_DIR="$TMP/data" "$TMP/runtime/run.sh"
 [[ -x "$TMP/lab/probe.sh" ]]
 [[ $("$TMP/lab/probe.sh") == revised ]]
