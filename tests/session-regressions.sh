@@ -37,6 +37,11 @@ assert_contains "$ROOT/prompt.txt" 'fix the command, retry it yourself, and cont
 assert_contains "$ROOT/prompt.txt" 'Do not ask the human to repair an ordinary command-formatting mistake'
 assert_contains "$ROOT/AGENTS.md" 'fix the command, retry it yourself, and continue the autonomous session'
 assert_contains "$ROOT/AGENTS.md" 'Do not ask the human to repair an ordinary command-formatting mistake'
+assert_contains "$ROOT/README.md" 'Substantive changes select `CHECKPOINT_UNFINISHED` through the normal finalization path'
+assert_contains "$ROOT/README.md" 'bookkeeping-only or unchanged sessions remain `FAILED`'
+assert_contains "$ROOT/README.md" 'The fallback never infers `COMMITTED_CHANGE` or `NOOP`.'
+assert_contains "$ROOT/README.md" 'This rule also applies to nonzero OpenCode exits'
+assert_contains "$ROOT/README.md" 'New memory and queue entries'
 
 git init -b main "$TMP/repo" >/dev/null
 git -C "$TMP/repo" config user.name Fixture

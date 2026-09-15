@@ -253,31 +253,56 @@ else
     outcome_recorded=false
 fi
 
-if ! $outcome_recorded && (( agent_status != 0 )); then
-    failure_summary="OpenCode exited with status $agent_status"
-    COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
-        "$PUBLISHER" session-failure commitment || true
-    AGENT_EXIT_STATUS=$agent_status "$PUBLISHER" checkpoint commitment || true
-    AGENT_EXIT_STATUS=$agent_status "$PUBLISHER" checkpoint lab || true
-    note "$failure_summary; work was checkpointed where possible; nothing was published"
-    exit "$agent_status"
-elif ! $outcome_recorded; then
-    failure_summary="OpenCode exited without a valid session outcome"
-    COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
-        "$PUBLISHER" session-failure commitment || true
-    AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint commitment || true
-    AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint lab || true
-    die "$failure_summary; work was checkpointed where possible and nothing was published"
+finalize_exit_status=0
+if ! $outcome_recorded; then
+    classification_failed=0
+    commitment_classification=''
+    lab_classification=''
+    if ! commitment_classification=$(AGENT_BASE_HEAD="$commitment_base" "$PUBLISHER" classify commitment); then
+        classification_failed=1
+    fi
+    if ! lab_classification=$(AGENT_BASE_HEAD="$lab_base" "$PUBLISHER" classify lab); then
+        classification_failed=1
+    fi
+
+    if (( classification_failed == 0 )) &&
+        [[ $commitment_classification == *substantive=1* || $lab_classification == *substantive=1* ]]; then
+        fallback_summary="OpenCode exited without a valid session outcome; substantive work preserved as unfinished"
+        rm -f -- "$COMMITMENT_REPO/.git/commitment-session-outcome"
+        COMMITMENT_ROOT="$COMMITMENT_REPO" COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" \
+            "$OUTCOME_HELPER" CHECKPOINT_UNFINISHED "$fallback_summary"
+        outcome=CHECKPOINT_UNFINISHED
+        outcome_recorded=true
+        finalize_exit_status=$agent_status
+        note "trusted fallback selected CHECKPOINT_UNFINISHED for substantive work"
+    else
+        if (( agent_status != 0 )); then
+            failure_summary="OpenCode exited with status $agent_status"
+            failure_status=$agent_status
+        elif (( classification_failed != 0 )); then
+            failure_summary="OpenCode exited without an outcome and repository classification failed"
+            failure_status=1
+        else
+            failure_summary="OpenCode exited without a valid session outcome"
+            failure_status=1
+        fi
+        COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
+            "$PUBLISHER" session-failure commitment || true
+        AGENT_EXIT_STATUS="$failure_status" "$PUBLISHER" checkpoint commitment || true
+        AGENT_EXIT_STATUS="$failure_status" "$PUBLISHER" checkpoint lab || true
+        note "$failure_summary; work was checkpointed where possible; nothing was published"
+        exit "$failure_status"
+    fi
 fi
 
 finalize_failed=0
 commitment_result=''
 lab_result=''
-if ! commitment_result=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_EXIT_STATUS=0 \
+if ! commitment_result=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_EXIT_STATUS="$finalize_exit_status" \
     AGENT_BASE_HEAD="$commitment_base" AGENT_OUTCOME="$outcome" "$PUBLISHER" finalize commitment); then
     finalize_failed=1
 fi
-if ! lab_result=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_EXIT_STATUS=0 \
+if ! lab_result=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_EXIT_STATUS="$finalize_exit_status" \
     AGENT_BASE_HEAD="$lab_base" AGENT_OUTCOME="$outcome" "$PUBLISHER" finalize lab); then
     finalize_failed=1
 fi

@@ -36,9 +36,20 @@ case $command in
         COMMITMENT_ROOT="$FAKE_COMMITMENT_REPO" \
             "$FAKE_OUTCOME_HELPER" --read
         ;;
+    classify)
+        if [[ $repo == commitment ]]; then
+            printf 'substantive=%s\n' "${FAKE_COMMITMENT_SUBSTANTIVE:-0}"
+        else
+            printf 'substantive=%s\n' "${FAKE_LAB_SUBSTANTIVE:-0}"
+        fi
+        ;;
     session-failure|checkpoint|push) ;;
     finalize)
-        if [[ ${AGENT_OUTCOME:-} == COMMITTED_CHANGE && $repo == commitment ]]; then
+        if [[ ${AGENT_OUTCOME:-} == COMMITTED_CHANGE && $repo == commitment ]] ||
+            [[ ${AGENT_OUTCOME:-} == CHECKPOINT_UNFINISHED && $repo == commitment &&
+                ${FAKE_COMMITMENT_SUBSTANTIVE:-0} == 1 ]] ||
+            [[ ${AGENT_OUTCOME:-} == CHECKPOINT_UNFINISHED && $repo == lab &&
+                ${FAKE_LAB_SUBSTANTIVE:-0} == 1 ]]; then
             printf 'substantive=1\n'
         else
             printf 'substantive=0\n'
@@ -118,6 +129,35 @@ case $FAKE_AGENT_MODE in
         touch "$FAKE_COMMITMENT_REPO/process-completed"
         ;;
     missing) exit 0 ;;
+    missing-queue)
+        mkdir -p "$FAKE_COMMITMENT_REPO/queue"
+        printf '%s\n' candidate >"$FAKE_COMMITMENT_REPO/queue/new.md"
+        ;;
+    missing-memory)
+        mkdir -p "$FAKE_COMMITMENT_REPO/memory"
+        printf '%s\n' finding >"$FAKE_COMMITMENT_REPO/memory/new.md"
+        ;;
+    missing-cross-domain)
+        mkdir -p "$FAKE_COMMITMENT_REPO/queue" "$FAKE_COMMITMENT_REPO/requests"
+        printf '%s\n' request >"$FAKE_COMMITMENT_REPO/queue/moved.md"
+        ;;
+    missing-real-shape)
+        mkdir -p "$FAKE_COMMITMENT_REPO/memory" "$FAKE_COMMITMENT_REPO/queue"
+        printf '%s\n' finding >"$FAKE_COMMITMENT_REPO/memory/finding.md"
+        printf '%s\n' candidate >"$FAKE_COMMITMENT_REPO/queue/candidate.md"
+        COMMITMENT_ROOT="$FAKE_COMMITMENT_REPO" COMMITMENT_SESSION_ID="$session_id" \
+            "$FAKE_LOG_HELPER" research "Synthetic failure-shape research" \
+            source=https://example.invalid/failure-shape result="Candidate retained"
+        ;;
+    missing-inbox)
+        mkdir -p "$FAKE_COMMITMENT_REPO/inbox/processed"
+        printf '%s\n' processed >"$FAKE_COMMITMENT_REPO/inbox/processed/item.md"
+        ;;
+    nonzero-substantive)
+        mkdir -p "$FAKE_COMMITMENT_REPO/queue"
+        printf '%s\n' candidate >"$FAKE_COMMITMENT_REPO/queue/new.md"
+        exit 42
+        ;;
     timeout) sleep 10 ;;
     nonzero) exit 42 ;;
     *) exit 2 ;;
@@ -166,6 +206,8 @@ reset_case() {
     : >"$TMP/lab/runlog.jsonl"
     : >"$FAKE_PUBLISH_LOG"
     : >"$FAKE_PROCESS_LOG"
+    rm -rf "$TMP/commitment/memory" "$TMP/commitment/queue" \
+        "$TMP/commitment/requests" "$TMP/commitment/inbox"
     rm -f "$TMP/commitment/.git/commitment-session-outcome" \
         "$TMP/commitment/post-outcome-action" "$TMP/commitment/process-completed" \
         "$TMP/commitment/bookkeeping.txt" "$FAKE_PODMAN_PID"
@@ -214,6 +256,7 @@ for outcome in NOOP COMMITTED_CHANGE CHECKPOINT_UNFINISHED FAILED; do
         fail "$outcome added a failure event"
     ! grep -Fq 'session-failure|' "$FAKE_PUBLISH_LOG" || fail "$outcome invoked session-failure"
     ! grep -Fq 'checkpoint|' "$FAKE_PUBLISH_LOG" || fail "$outcome invoked exit-failure checkpointing"
+    ! grep -Fq 'classify|' "$FAKE_PUBLISH_LOG" || fail "$outcome invoked missing-outcome classification"
     grep -Fq "finalize|commitment|$outcome|0" "$FAKE_PUBLISH_LOG" || fail "$outcome missed commitment finalization"
     grep -Fq "finalize|lab|$outcome|0" "$FAKE_PUBLISH_LOG" || fail "$outcome missed lab finalization"
     if [[ $outcome == NOOP ]]; then
@@ -239,13 +282,59 @@ printf 'ok - stale-session and malformed outcome state cannot terminate the curr
 reset_case
 write_config 5
 export FAKE_AGENT_MODE=missing FAKE_OUTCOME=NOOP
+export FAKE_COMMITMENT_SUBSTANTIVE=0 FAKE_LAB_SUBSTANTIVE=0
 if run_launcher "$TMP/missing.out"; then fail "missing outcome reported success"; fi
 assert_contains "$TMP/missing.out" 'OpenCode exited without a valid session outcome'
 assert_contains "$FAKE_PUBLISH_LOG" 'session-failure|commitment'
+assert_contains "$FAKE_PUBLISH_LOG" 'classify|commitment'
+
+reset_case
+write_config 5
+export FAKE_AGENT_MODE=missing FAKE_OUTCOME=NOOP
+if run_launcher "$TMP/runlog-only.out"; then fail "runlog-only missing outcome reported success"; fi
+assert_contains "$FAKE_PUBLISH_LOG" 'session-failure|commitment'
+
+reset_case
+write_config 5
+export FAKE_AGENT_MODE=missing-inbox FAKE_OUTCOME=NOOP
+if run_launcher "$TMP/inbox-only.out"; then fail "inbox-only missing outcome reported success"; fi
+assert_contains "$FAKE_PUBLISH_LOG" 'session-failure|commitment'
+! grep -Fq 'finalize|' "$FAKE_PUBLISH_LOG" || fail 'bookkeeping-only exit reached outcome finalization'
+
+assert_missing_outcome_fallback() {
+    local mode=$1 expected_status=$2
+    reset_case
+    write_config 5
+    export FAKE_AGENT_MODE=$mode FAKE_OUTCOME=NOOP
+    export FAKE_COMMITMENT_SUBSTANTIVE=1 FAKE_LAB_SUBSTANTIVE=0
+    status=0
+    run_launcher "$TMP/$mode.out" || status=$?
+    [[ $status == 0 ]] || fail "$mode fallback returned status $status"
+    assert_contains "$TMP/$mode.out" 'trusted fallback selected CHECKPOINT_UNFINISHED'
+    ! grep -Fq 'session-failure|' "$FAKE_PUBLISH_LOG" || fail "$mode fallback recorded FAILED"
+    ! grep -Fq 'checkpoint|' "$FAKE_PUBLISH_LOG" || fail "$mode fallback used generic checkpointing"
+    assert_contains "$FAKE_PUBLISH_LOG" 'classify|commitment'
+    assert_contains "$FAKE_PUBLISH_LOG" "finalize|commitment|CHECKPOINT_UNFINISHED|$expected_status"
+    assert_contains "$FAKE_PUBLISH_LOG" "finalize|lab|CHECKPOINT_UNFINISHED|$expected_status"
+    jq -e '.outcome == "CHECKPOINT_UNFINISHED" and
+        (.summary | contains("substantive work preserved as unfinished"))' \
+        "$TMP/commitment/.git/commitment-session-outcome" >/dev/null ||
+        fail "$mode fallback did not record CHECKPOINT_UNFINISHED"
+    ! jq -eR 'fromjson? | select(.type == "session_end" and
+        (.outcome == "NOOP" or .outcome == "COMMITTED_CHANGE"))' \
+        "$TMP/commitment/runlog.jsonl" >/dev/null || fail "$mode inferred a completed outcome"
+}
+
+assert_missing_outcome_fallback missing-queue 0
+assert_missing_outcome_fallback missing-memory 0
+assert_missing_outcome_fallback missing-cross-domain 0
+assert_missing_outcome_fallback missing-real-shape 0
+assert_missing_outcome_fallback nonzero-substantive 42
 
 reset_case
 write_config 1
 export FAKE_AGENT_MODE=timeout FAKE_OUTCOME=NOOP
+export FAKE_COMMITMENT_SUBSTANTIVE=0 FAKE_LAB_SUBSTANTIVE=0
 status=0
 run_launcher "$TMP/timeout.out" || status=$?
 [[ $status == 124 ]] || fail "timeout returned status $status"
@@ -260,7 +349,7 @@ run_launcher "$TMP/nonzero.out" || status=$?
 [[ $status == 42 ]] || fail "nonzero process returned status $status"
 assert_contains "$TMP/nonzero.out" 'OpenCode exited with status 42'
 assert_contains "$FAKE_PUBLISH_LOG" 'checkpoint|commitment||42'
-printf 'ok - missing outcome, timeout, and nonzero exit retain distinct failure handling\n'
+printf 'ok - missing outcomes use trusted classification for deterministic checkpoint or failure handling\n'
 
 reset_case
 write_config 5

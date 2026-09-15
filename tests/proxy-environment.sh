@@ -49,6 +49,7 @@ cat >"$TMP/publisher" <<'EOF'
 case "$1" in
     session-head) printf '%040d\n' 0 ;;
     session-outcome) exit 1 ;;
+    classify) printf '%s\n' substantive=0 ;;
     sync|session-start|session-failure|checkpoint) exit 0 ;;
     *) exit 2 ;;
 esac

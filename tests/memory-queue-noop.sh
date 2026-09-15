@@ -84,35 +84,13 @@ finalize() {
         "$ROOT/agent-git.sh" finalize
 }
 
-# Scenario A: bounded research finds a useful observation but no actionable work.
+# Scenario A: bounded research finds no actionable work and records only audit state.
 repo_a="$TMP/a"
 new_repo "$repo_a"
 base_a=$(git -C "$repo_a" rev-parse HEAD)
 begin_session "$repo_a" scenario-a
 record_research "$repo_a" scenario-a https://example.invalid/release
-cat >"$repo_a/memory/public-release-note.md" <<'EOF'
----
-title: Public release note may become relevant
-created: 2026-09-13
-session: scenario-a
-source: https://example.invalid/release
-confidence: medium
-related_queue:
----
-
-## Observation
-
-Brief outward research found an interesting capability without an actionable local use.
-
-## Why it may matter
-
-It could support a future evidenced use case.
-
-## Possible follow-up
-
-Revisit only if a concrete need appears.
-EOF
-record_outcome "$repo_a" scenario-a NOOP "Research found one non-actionable observation; no substantive change was justified"
+record_outcome "$repo_a" scenario-a NOOP "Research found no substantive change"
 [[ $(read_outcome "$repo_a" scenario-a) == NOOP ]] || fail "NOOP was not recognized"
 if record_outcome "$repo_a" scenario-a NOOP "Duplicate outcome" >"$TMP/duplicate.out" 2>&1; then
     fail "duplicate session outcome was accepted"
@@ -125,8 +103,8 @@ result_a=$(finalize "$repo_a" "$base_a" NOOP)
 git -C "$repo_a" bundle create "$TMP/noop.bundle" main
 git -C "$repo_a" bundle verify "$TMP/noop.bundle" >/dev/null
 [[ $(sed -n '1p' "$repo_a/runlog.jsonl") == '{ts:legacy,session_id:old,type:session_end,summary:preserved}' ]] || fail "historical runlog entry changed"
-grep -Fq 'https://example.invalid/release' "$repo_a/memory/public-release-note.md" || fail "research source was not retained"
-pass "Scenario A: outward research, memory bookkeeping, successful NOOP, unchanged VERSION, and bundle export"
+grep -Fq 'https://example.invalid/release' "$repo_a/runlog.jsonl" || fail "research source was not retained"
+pass "Scenario A: outward research, successful NOOP, unchanged VERSION, and bundle export"
 
 # Scenario B: a ready evidenced item is selected and produces substantive work.
 repo_b="$TMP/b"
@@ -194,6 +172,22 @@ if finalize "$repo_bad_noop" "$base_bad_noop" NOOP >"$TMP/bad-noop.out" 2>&1; th
 fi
 grep -Fq 'NOOP contains substantive changes' "$TMP/bad-noop.out" || fail "missing NOOP mismatch reason"
 pass "NOOP rejects substantive repository changes"
+
+for domain in memory queue; do
+    repo="$TMP/bad-noop-$domain"
+    new_repo "$repo"
+    base=$(git -C "$repo" rev-parse HEAD)
+    begin_session "$repo" "bad-noop-$domain"
+    record_research "$repo" "bad-noop-$domain"
+    printf '%s\n' new >"$repo/$domain/new.md"
+    record_outcome "$repo" "bad-noop-$domain" NOOP "Incorrect durable-state NOOP fixture"
+    if finalize "$repo" "$base" NOOP >"$TMP/bad-noop-$domain.out" 2>&1; then
+        fail "NOOP with new $domain entry was accepted"
+    fi
+    grep -Fq 'NOOP contains substantive changes' "$TMP/bad-noop-$domain.out" ||
+        fail "new $domain entry did not use trusted substantive classification"
+done
+pass "new memory and queue entries are substantive for explicit NOOP validation"
 
 repo_format="$TMP/format-doc"
 new_repo "$repo_format"

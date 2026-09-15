@@ -82,6 +82,7 @@ is_versioned_path() {
 classify_path() {
     local path=$1 status=$2
     if ! is_bookkeeping_path "$path" ||
+        [[ $path == @(memory|queue)/*.md && $status == A ]] ||
         [[ $path == @(queue|requests)/*.md &&
             ($status == M || $status == T ||
                 ($status == @(R|C)* && $status != @(R|C)100)) ]]; then
@@ -186,6 +187,14 @@ case ${1:-} in
         append_runlog failure "${AGENT_FAILURE_SUMMARY:-Session runtime failed}"
         append_runlog session_end "${AGENT_FAILURE_SUMMARY:-Session runtime failed}" FAILED
         ;;
+    classify)
+        verify_repo
+        [[ ${AGENT_BASE_HEAD:-} =~ ^[0-9a-fA-F]{40,64}$ ]] || die "valid AGENT_BASE_HEAD is required"
+        git -C "$repo" merge-base --is-ancestor "$AGENT_BASE_HEAD" HEAD ||
+            die "session history diverged from its starting point"
+        classify_changes
+        printf 'substantive=%s\n' "$HAS_SUBSTANTIVE"
+        ;;
     finalize)
         verify_repo
         [[ ${AGENT_BASE_HEAD:-} =~ ^[0-9a-fA-F]{40,64}$ ]] || die "valid AGENT_BASE_HEAD is required"
@@ -247,6 +256,6 @@ case ${1:-} in
         git -C "$repo" bundle create "$output" "refs/heads/$branch"
         ;;
     *)
-        die "usage: $0 {session-head|session-start|session-outcome|session-failure|finalize|sync BUNDLE|checkpoint|export BUNDLE}"
+        die "usage: $0 {session-head|session-start|session-outcome|session-failure|classify|finalize|sync BUNDLE|checkpoint|export BUNDLE}"
         ;;
 esac

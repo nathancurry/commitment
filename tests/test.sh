@@ -127,13 +127,13 @@ for argument do
             COMMITMENT_ROOT=*) commitment_root=${argument#COMMITMENT_ROOT=} ;;
         esac
     fi
-    case $argument in session-head|session-start|session-outcome|session-failure|finalize|sync|checkpoint|export) operation=$argument ;; esac
+    case $argument in session-head|session-start|session-outcome|session-failure|classify|finalize|sync|checkpoint|export) operation=$argument ;; esac
     previous=$argument
 done
 if [ -n "${FAKE_PODMAN_ALL_ARGS:-}" ]; then
     printf '%s\n' "$@" >>"$FAKE_PODMAN_ALL_ARGS"
 fi
-if [ "${FAKE_OUTCOME_PROSE:-0}" = 1 ]; then
+if [ "${FAKE_OUTCOME_PROSE:-0}" = 1 ] && [ -z "$helper" ]; then
     printf '%s\n' 'Outcome: NOOP'
 fi
 if [ -n "$helper" ]; then
@@ -244,7 +244,8 @@ jq -e --arg session_id "$second_session_id" '.session_id == $session_id and .out
     "$TMP/commitment/.git/commitment-session-outcome" >/dev/null || fail "helper invocation did not establish the session outcome"
 pass "fresh default ignores stale session text, preserves state, and records helper outcome"
 
-if FAKE_SKIP_OUTCOME_HELPER=1 FAKE_OUTCOME_PROSE=1 "$HOME/.local/bin/commitment" >"$TMP/prose-outcome.out" 2>&1; then
+if FAKE_SKIP_OUTCOME_HELPER=1 FAKE_OUTCOME_PROSE=1 FAKE_BOOKKEEPING_ONLY=1 \
+    "$HOME/.local/bin/commitment" >"$TMP/prose-outcome.out" 2>&1; then
     fail "prose-only outcome was accepted"
 fi
 assert_contains "$TMP/prose-outcome.out" 'OpenCode exited without a valid session outcome'

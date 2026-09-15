@@ -237,7 +237,7 @@ case $command in
         select_repo "${2:-}"
         "${command}_repo"
         ;;
-    session-head|session-start|session-outcome|session-failure|finalize)
+    session-head|session-start|session-outcome|session-failure|classify|finalize)
         select_repo "${2:-}"
         run_agent_git "$command"
         ;;
@@ -260,5 +260,5 @@ case $command in
         [[ ${3:-} =~ ^[1-9][0-9]*$ ]] || die "usage: $0 issue-close REPO NUMBER"
         gh_auth issue close "$3" --repo "$(github_slug)"
         ;;
-    *) die "usage: $0 {session-head|session-start|session-outcome|session-failure|finalize|sync|checkpoint|push|issue-list|issue-create|issue-comment|issue-close} ..." ;;
+    *) die "usage: $0 {session-head|session-start|session-outcome|session-failure|classify|finalize|sync|checkpoint|push|issue-list|issue-create|issue-comment|issue-close} ..." ;;
 esac

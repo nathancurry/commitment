@@ -27,6 +27,12 @@ finalize() {
         "$ROOT/agent-git.sh" finalize
 }
 
+classify() {
+    local repo=$1 base=$2
+    AGENT_REPO="$repo" AGENT_BRANCH=main AGENT_REPO_KIND=commitment \
+        AGENT_BASE_HEAD="$base" "$ROOT/agent-git.sh" classify
+}
+
 start_session() {
     local repo=$1 session=$2
     AGENT_REPO="$repo" AGENT_BRANCH=main AGENT_REPO_KIND=commitment \
@@ -128,4 +134,37 @@ for domain in queue requests; do
     [[ $result == *substantive=1* ]] || fail "$domain content modification was not substantive"
 done
 
-printf '%s\n' 'ok - exact inbox processing and substantive durable-state move classification'
+# New memory and queue entries are substantive durable state. Runlog-only changes
+# and exact inbox processing remain bookkeeping.
+for domain in memory queue; do
+    repo="$TMP/new-$domain"
+    new_repo "$repo"
+    git -C "$repo" add -A
+    git -C "$repo" commit -m initial >/dev/null
+    base=$(git -C "$repo" rev-parse HEAD)
+    printf '%s\n' durable >"$repo/$domain/new.md"
+    result=$(classify "$repo" "$base")
+    [[ $result == *substantive=1* ]] || fail "new $domain entry was not substantive"
+done
+
+repo="$TMP/runlog-only"
+new_repo "$repo"
+git -C "$repo" add -A
+git -C "$repo" commit -m initial >/dev/null
+base=$(git -C "$repo" rev-parse HEAD)
+printf '%s\n' '{"type":"observation"}' >>"$repo/$RUNLOG"
+result=$(classify "$repo" "$base")
+[[ $result == *substantive=0* ]] || fail 'runlog-only change became substantive'
+
+repo="$TMP/real-failure-shape"
+new_repo "$repo"
+git -C "$repo" add -A
+git -C "$repo" commit -m initial >/dev/null
+base=$(git -C "$repo" rev-parse HEAD)
+printf '%s\n' finding >"$repo/memory/finding.md"
+printf '%s\n' candidate >"$repo/queue/candidate.md"
+printf '%s\n' '{"type":"research"}' >>"$repo/$RUNLOG"
+result=$(classify "$repo" "$base")
+[[ $result == *substantive=1* ]] || fail 'memory + queue + runlog failure shape was not substantive'
+
+printf '%s\n' 'ok - trusted substantive and bookkeeping change classification'
