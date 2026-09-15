@@ -93,8 +93,9 @@ invitation; do not repeatedly nag. Withdraw requests made unnecessary by a bette
 approach. Requests are durable context, not mandatory analysis each session.
 Continue independent work while pending. Existing observation, candidate,
 decision, change, and research events suffice to record significant facts;
-never log secret values. Request entry edits are bookkeeping like queue entries;
-this README is substantive format/operational documentation.
+never log secret values. Creating, retiring, or renaming a request within
+`requests/` is lifecycle bookkeeping. Request content edits and cross-domain
+moves are substantive; this README is substantive format/operational documentation.
 
 ## Operator setup: Commitment-owned Secrets Manager
 

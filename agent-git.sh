@@ -51,28 +51,77 @@ is_bookkeeping_path() {
     esac
 }
 
+bookkeeping_domain() {
+    is_bookkeeping_path "$1" || return 1
+    case $1 in
+        runlog.jsonl) printf '%s\n' runlog ;;
+        memory/*.md) printf '%s\n' memory ;;
+        queue/*.md) printf '%s\n' queue ;;
+        requests/*.md) printf '%s\n' requests ;;
+        inbox/*) printf '%s\n' inbox ;;
+    esac
+}
+
+is_versioned_path() {
+    [[ ${AGENT_REPO_KIND:-} == commitment ]] || return 1
+    case $1 in
+        memory/README.md|queue/README.md|requests/README.md|inbox/README.md) return 0 ;;
+        runlog.jsonl|memory/*.md|queue/*.md|requests/*.md|inbox/*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+classify_path() {
+    local path=$1 status=$2
+    if ! is_bookkeeping_path "$path" ||
+        [[ $path == @(queue|requests)/*.md &&
+            ($status == M || $status == T ||
+                ($status == @(R|C)* && $status != @(R|C)100)) ]]; then
+        HAS_SUBSTANTIVE=1
+    fi
+    if is_versioned_path "$path"; then
+        HAS_VERSIONED_SUBSTANTIVE=1
+    fi
+}
+
+classify_diff() {
+    local status source destination source_domain destination_domain
+    while IFS= read -r -d '' status; do
+        HAS_CHANGES=1
+        IFS= read -r -d '' source || die "malformed Git change record"
+        case $status in
+            R*|C*)
+                IFS= read -r -d '' destination || die "malformed Git rename record"
+                classify_path "$source" "$status"
+                classify_path "$destination" "$status"
+                source_domain=$(bookkeeping_domain "$source" || true)
+                destination_domain=$(bookkeeping_domain "$destination" || true)
+                if [[ -n $source_domain && -n $destination_domain &&
+                    $source_domain != "$destination_domain" ]]; then
+                    HAS_SUBSTANTIVE=1
+                fi
+                ;;
+            *) classify_path "$source" "$status" ;;
+        esac
+    done
+}
+
 classify_changes() {
     local path
     HAS_CHANGES=0
     HAS_SUBSTANTIVE=0
+    HAS_VERSIONED_SUBSTANTIVE=0
     HAS_DIRTY=0
-    HAS_DIRTY_SUBSTANTIVE=0
-    while IFS= read -r -d '' path; do
-        HAS_CHANGES=1
-        is_bookkeeping_path "$path" || HAS_SUBSTANTIVE=1
-    done < <(git -C "$repo" diff --name-only -z "$AGENT_BASE_HEAD..HEAD")
-    while IFS= read -r -d '' path; do
-        HAS_CHANGES=1
+    classify_diff < <(git -C "$repo" diff --name-status -z --find-renames "$AGENT_BASE_HEAD..HEAD")
+    if [[ -n $(git -C "$repo" status --porcelain) ]]; then
         HAS_DIRTY=1
-        if ! is_bookkeeping_path "$path"; then
-            HAS_SUBSTANTIVE=1
-            HAS_DIRTY_SUBSTANTIVE=1
-        fi
-    done < <({
-        git -C "$repo" diff --name-only -z
-        git -C "$repo" diff --cached --name-only -z
-        git -C "$repo" ls-files --others --exclude-standard -z
-    })
+    fi
+    classify_diff < <(git -C "$repo" diff --name-status -z --find-renames)
+    classify_diff < <(git -C "$repo" diff --cached --name-status -z --find-renames)
+    while IFS= read -r -d '' path; do
+        HAS_CHANGES=1
+        classify_path "$path" A
+    done < <(git -C "$repo" ls-files --others --exclude-standard -z)
 }
 
 commit_dirty() {
@@ -129,9 +178,7 @@ case ${1:-} in
                 commit_dirty "chore: record NOOP session bookkeeping"
                 ;;
             COMMITTED_CHANGE)
-                (( HAS_DIRTY_SUBSTANTIVE == 0 )) ||
-                    die "COMMITTED_CHANGE left substantive work uncommitted"
-                if [[ ${AGENT_REPO_KIND:-} == commitment && $HAS_SUBSTANTIVE == 1 ]]; then
+                if [[ ${AGENT_REPO_KIND:-} == commitment && $HAS_VERSIONED_SUBSTANTIVE == 1 ]]; then
                     before_version=$(git -C "$repo" show "$AGENT_BASE_HEAD:VERSION" 2>/dev/null || true)
                     after_version=$(<"$repo/VERSION")
                     [[ -n $before_version && $after_version != "$before_version" ]] ||

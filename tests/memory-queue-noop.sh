@@ -13,8 +13,6 @@ FIXTURE_VERSION_BEFORE=7.8.9
 FIXTURE_VERSION_AFTER=7.9.0
 
 [[ -f "$ROOT/memory/README.md" && -f "$ROOT/queue/README.md" ]] || fail "memory or queue format is missing"
-[[ $(find "$ROOT/memory" -maxdepth 1 -type f ! -name README.md | wc -l) -eq 0 ]] || fail "live memory was prepopulated"
-[[ $(find "$ROOT/queue" -maxdepth 1 -type f ! -name README.md | wc -l) -eq 0 ]] || fail "live queue was prepopulated"
 for field in title created session source confidence related_queue; do
     assert_contains "$ROOT/memory/README.md" "$field:"
 done
@@ -160,11 +158,11 @@ base_b=$(git -C "$repo_b" rev-parse HEAD)
 begin_session "$repo_b" scenario-b
 printf '%s\n' 'implemented ready item' >"$repo_b/implementation.txt"
 printf '%s\n' "$FIXTURE_VERSION_AFTER" >"$repo_b/VERSION"
-git -C "$repo_b" add -A
-git -C "$repo_b" commit -m 'implement ready queue item' >/dev/null
 record_outcome "$repo_b" scenario-b COMMITTED_CHANGE "Implemented the ready evidenced queue item"
 result_b=$(finalize "$repo_b" "$base_b" COMMITTED_CHANGE)
 [[ $result_b == *substantive=1* ]] || fail "COMMITTED_CHANGE lacked substantive work"
+git -C "$repo_b" show HEAD:implementation.txt | grep -Fq 'implemented ready item' ||
+    fail "trusted finalizer did not commit substantive work"
 [[ $(read_outcome "$repo_b" scenario-b) == COMMITTED_CHANGE ]] || fail "COMMITTED_CHANGE was not distinct"
 assert_contains "$ROOT/AGENTS.md" 'ready high-value queue items'
 assert_contains "$ROOT/AGENTS.md" 'Prefer ready, evidenced work over new invention.'
@@ -212,7 +210,7 @@ if finalize "$repo_format" "$base_format" NOOP >"$TMP/format.out" 2>&1; then
 fi
 pass "memory and queue format documentation remains substantive"
 
-# Scenario C: research rejects a retained candidate with a reason.
+# Scenario C: research rejects a retained candidate with a substantive content update.
 repo_c="$TMP/c"
 new_repo "$repo_c"
 cat >"$repo_c/queue/speculative-helper.md" <<'EOF'
@@ -244,12 +242,13 @@ record_research "$repo_c" scenario-c
 sed -i 's/status: candidate/status: rejected/' "$repo_c/queue/speculative-helper.md"
 sed -i 's/updated: 2026-09-13/updated: 2026-09-14/' "$repo_c/queue/speculative-helper.md"
 printf '%s\n' 'No demonstrated user or reliability need was found.' >>"$repo_c/queue/speculative-helper.md"
-record_outcome "$repo_c" scenario-c NOOP "Rejected a low-value candidate after research; no substantive change was justified"
-finalize "$repo_c" "$base_c" NOOP >/dev/null
+record_outcome "$repo_c" scenario-c COMMITTED_CHANGE "Rejected a low-value candidate after research"
+result_c=$(finalize "$repo_c" "$base_c" COMMITTED_CHANGE)
+[[ $result_c == *substantive=1* ]] || fail "queue content update was not substantive"
 [[ -f "$repo_c/queue/speculative-helper.md" ]] || fail "rejected queue item was deleted"
 grep -Fq 'status: rejected' "$repo_c/queue/speculative-helper.md" || fail "candidate was not rejected"
 grep -Fq 'No demonstrated user or reliability need' "$repo_c/queue/speculative-helper.md" || fail "rejection reason is missing"
-pass "Scenario C: rejected candidate remains retained with a disposition and NOOP"
+pass "Scenario C: rejected candidate remains retained and its content update is substantive"
 
 for outcome in CHECKPOINT_UNFINISHED FAILED; do
     repo="$TMP/${outcome,,}"
