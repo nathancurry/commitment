@@ -3,15 +3,14 @@ This repository contains Commitment itself.
 and products.
 
 Durable state:
+- `CURRENT.md` — active multi-session work, if applicable.
 - `inbox/` — operator input; handled items may move to `inbox/processed/`.
 - `queue/` — possible future work.
 - `memory/` — findings worth retaining.
 - `requests/` — things Commitment wants from the operator or another external actor.
 - `runlog.jsonl` — session audit history.
 
-Files directly in `inbox/`, `queue/`, and `requests/` are active. When an item no
-longer needs active attention, move it to that directory's `processed/`
-subdirectory. `memory/` is not a work queue and does not use this convention.
+Files directly in `CURRENT.md`, `inbox/`, `queue/`, and `requests/` are active. When an item no longer needs active attention, move it to that directory's `processed/` subdirectory. `CURRENT.md` should be removed when work is finished or abandoned. `memory/` is not a work queue and does not use this convention.
 
 Use ordinary Markdown. Existing formats and status labels are conventions, not
 mandatory schemas.
