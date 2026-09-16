@@ -96,6 +96,7 @@ cat >"$tmp_config" <<EOF
 {
   "\$schema": "https://opencode.ai/config.json",
   "model": "ollama/$model_json",
+  "default_agent": "commitment",
   "enabled_providers": ["ollama"],
   "autoupdate": false,
   "share": "disabled",
@@ -252,7 +253,7 @@ container_args=(run --http-proxy=false --rm --name "$container_name"
     -e GIT_AUTHOR_EMAIL="$GIT_AUTHOR_EMAIL"
     -e GIT_COMMITTER_NAME="$GIT_COMMITTER_NAME"
     -e GIT_COMMITTER_EMAIL="$GIT_COMMITTER_EMAIL"
-    "$CONTAINER_IMAGE" opencode run "${continue_args[@]}" --model "ollama/$OLLAMA_MODEL" "$prompt")
+    "$CONTAINER_IMAGE" opencode run "${continue_args[@]}" --agent commitment --model "ollama/$OLLAMA_MODEL" "$prompt")
 
 note "starting OpenCode session (timeout ${SESSION_TIMEOUT}s)"
 agent_status=0
