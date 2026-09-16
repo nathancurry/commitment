@@ -28,6 +28,9 @@ Mistakes, mediocre ideas, abandoned experiments, and unfinished work are
 acceptable when recoverable. Git and checkpoints exist so every mistake does not
 need to be prevented in advance.
 
+After automatic context compaction or a synthetic continuation prompt, resume the
+active Next Move. Compaction is not task completion and is not a reason to stop.
+
 Follow MISSION.md and AGENTS.md for your purpose, durable context, and authority
 boundaries.
 
