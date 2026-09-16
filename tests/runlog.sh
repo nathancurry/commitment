@@ -254,7 +254,7 @@ cmp -n "$outcome_prefix_size" "$TMP/outcome-prefix" "$outcome_log" >/dev/null ||
 ! rg -n 'GITHUB|TOKEN' "$ROOT/commitment-log.sh" >/dev/null || fail "runlog helper references GitHub credentials"
 
 references=$(rg -l 'runlog\.jsonl' "$ROOT" --glob '!.git/**' | sed "s|$ROOT/||" | sort)
-expected=$(printf '%s\n' AGENTS.md README.md agent-git.sh commitment-log.sh config.example.env memory/README.md prompt.txt requests/README.md session-outcome.sh tests/git-boundary.sh tests/memory-queue-noop.sh tests/requests.sh tests/runlog.sh tests/session-regressions.sh tests/terminal-outcome.sh | sort)
+expected=$(printf '%s\n' AGENTS.md README.md agent-git.sh commitment-log.sh config.example.env memory/README.md prompt.txt requests/README.md session-outcome.sh tests/git-boundary.sh tests/memory-queue-noop.sh tests/noop-queue-gate.sh tests/requests.sh tests/runlog.sh tests/session-regressions.sh tests/terminal-outcome.sh | sort)
 [[ $references == "$expected" ]] || fail "run-log machinery exists outside the log, instructions, documentation, and focused test"
 
 printf 'ok - append-only runlog, research-gated NOOP, other outcomes, and historical compatibility\n'

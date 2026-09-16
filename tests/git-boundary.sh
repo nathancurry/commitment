@@ -105,6 +105,7 @@ podman run --http-proxy=false --rm --network=none --security-opt=no-new-privileg
     -v "$TMP/commitment:/workspace/commitment:rw,Z" \
     -v "$ROOT/commitment-log.sh:/usr/local/bin/commitment-log:ro,Z" \
     -v "$ROOT/session-outcome.sh:/usr/local/bin/commitment-outcome:ro,Z" \
+    -v "$ROOT/queue-context.sh:/usr/local/bin/queue-context.sh:ro,Z" \
     -e COMMITMENT_SESSION_ID=boundary-noop \
     -e COMMITMENT_ROOT=/workspace/commitment \
     -e COMMITMENT_OUTCOME_FILE=/workspace/commitment/.git/commitment-session-outcome \

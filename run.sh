@@ -212,6 +212,7 @@ container_args=(run --http-proxy=false --rm --name "$container_name"
     -v "$STATE_DIR/opencode-data:/home/commitment/.local/share/opencode:rw,Z"
     -v "$OUTCOME_HELPER:/usr/local/bin/commitment-outcome:ro,Z"
     -v "$LOG_HELPER:/usr/local/bin/commitment-log:ro,Z"
+    -v "$QUEUE_CONTEXT_HELPER:/usr/local/bin/queue-context.sh:ro,Z"
     -v "$RUNTIME_DIR/commitment-secret.py:/usr/local/bin/commitment-secret:ro,Z"
     "${secret_args[@]}"
     -w /workspace/commitment

@@ -46,6 +46,17 @@ root=${COMMITMENT_ROOT:-$(git rev-parse --show-toplevel)}
 marker=${COMMITMENT_OUTCOME_FILE:-"$root/.git/commitment-session-outcome"}
 [[ ! -e $marker ]] || die "an outcome is already recorded for this session"
 
+if [[ $outcome == NOOP ]]; then
+    queue_helper=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/queue-context.sh
+    [[ -x $queue_helper ]] || die "trusted queue helper is unavailable: $queue_helper"
+    if ! queue_blockers=$("$queue_helper" "$root" noop-blockers); then
+        die "NOOP rejected: queue state could not be inspected"
+    fi
+    if [[ -n $queue_blockers ]]; then
+        die $'NOOP rejected: actionable or unresolved queue work remains:\n'"$queue_blockers"$'\nProgress actionable work and choose another legitimate outcome, or transition it to a non-actionable disposition; repair malformed queue state before concluding NOOP.'
+    fi
+fi
+
 if [[ $outcome == NOOP ]] && ! jq -eRn --arg session_id "$COMMITMENT_SESSION_ID" '
     [inputs
      | (fromjson? // empty)

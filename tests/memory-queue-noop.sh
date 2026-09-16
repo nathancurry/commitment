@@ -179,7 +179,12 @@ for domain in memory queue; do
     base=$(git -C "$repo" rev-parse HEAD)
     begin_session "$repo" "bad-noop-$domain"
     record_research "$repo" "bad-noop-$domain"
-    printf '%s\n' new >"$repo/$domain/new.md"
+    if [[ $domain == queue ]]; then
+        printf '%s\n' '---' 'title: Resolved fixture' 'status: rejected' '---' \
+            '## Disposition' 'Synthetic rejected item.' >"$repo/$domain/new.md"
+    else
+        printf '%s\n' new >"$repo/$domain/new.md"
+    fi
     record_outcome "$repo" "bad-noop-$domain" NOOP "Incorrect durable-state NOOP fixture"
     if finalize "$repo" "$base" NOOP >"$TMP/bad-noop-$domain.out" 2>&1; then
         fail "NOOP with new $domain entry was accepted"

@@ -39,6 +39,11 @@ Candidate, researching, and ready items may warrant evaluation, but existence al
 does not require action. Blocked, deferred, done, and rejected items remain retained
 history and are not fresh actionable work.
 
+The trusted outcome helper rejects `NOOP` while any candidate, researching, or ready
+item remains. It also rejects `NOOP` when a direct queue item's frontmatter status is
+missing, empty, duplicated, unknown, or otherwise malformed. Substantive progress that
+leaves an actionable status in place still requires a different explicit outcome.
+
 Discovery is not meaningful evaluation. Merely enumerating or reading an item as context
 does not require changing it. Meaningful evaluation starts when a session selects an
 actionable item as active work, researches it specifically, investigates its next

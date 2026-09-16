@@ -37,6 +37,7 @@ grep -Fxq 'ALLOW_SUBAGENTS=false' "$ROOT/config.example.env" || fail "subagents 
 "$ROOT/tests/memory-queue-noop.sh"
 "$ROOT/tests/queue-discovery.sh"
 "$ROOT/tests/queue-evaluation.sh"
+"$ROOT/tests/noop-queue-gate.sh"
 "$ROOT/tests/inbox.sh"
 "$ROOT/tests/git-change-classifier.sh"
 "$ROOT/tests/session-regressions.sh"
@@ -326,10 +327,12 @@ pass "operator-selected Ollama model and limits"
 [[ $(git -C "$TMP/commitment" log -1 --format=%s) == checkpoint:* ]] || fail "commitment checkpoint missing"
 [[ $(git -C "$TMP/lab" log -1 --format=%s) == checkpoint:* ]] || fail "lab checkpoint missing"
 [[ $("$TMP/lab/small-program") == revised ]] || fail "program revision did not survive"
-mount_count=$(grep -cE ':/workspace/commitment(-lab)?:rw,Z|:/home/commitment/\.config/opencode/opencode.json:ro,Z|:/home/commitment/\.local/share/opencode:rw,Z|:/usr/local/bin/commitment-(outcome|log|secret):ro,Z' "$FAKE_PODMAN_ARGS")
-[[ $mount_count -eq 7 ]] || fail "expected exactly seven intended mounts with secrets disabled"
+mount_count=$(grep -cE ':/workspace/commitment(-lab)?:rw,Z|:/home/commitment/\.config/opencode/opencode.json:ro,Z|:/home/commitment/\.local/share/opencode:rw,Z|:/usr/local/bin/(commitment-(outcome|log|secret)|queue-context\.sh):ro,Z' "$FAKE_PODMAN_ARGS")
+[[ $mount_count -eq 8 ]] || fail "expected exactly eight intended mounts with secrets disabled"
 grep -Fxq "$HOME/.local/libexec/commitment/commitment-log.sh:/usr/local/bin/commitment-log:ro,Z" "$FAKE_PODMAN_ARGS" ||
     fail "installed runlog helper was not mounted read-only"
+grep -Fxq "$HOME/.local/libexec/commitment/queue-context.sh:/usr/local/bin/queue-context.sh:ro,Z" "$FAKE_PODMAN_ARGS" ||
+    fail "installed queue helper was not mounted read-only"
 ! grep -Fq "$HOME:" "$FAKE_PODMAN_ARGS" || fail "home directory was mounted"
 ! grep -Fq 'GITHUB_TOKEN' "$FAKE_PODMAN_ARGS" || fail "GitHub credential was passed"
 ! grep -Eq 'BWS_ACCESS_TOKEN|BITWARDEN_|bitwarden-secrets-token' "$FAKE_PODMAN_ARGS" || fail "Bitwarden credential/config was passed"
