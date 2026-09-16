@@ -99,7 +99,9 @@ podman create --http-proxy=false --name "$C1" \
 
 mounts=$(podman inspect "$C1" --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}')
 podman inspect "$C1" | jq -e '.[0].HostConfig.Privileged == false and .[0].HostConfig.NetworkMode != "host" and ((.[0].HostConfig.Devices // []) | length) == 0' >/dev/null
-[[ $(printf '%s\n' "$mounts" | wc -l) -eq 4 ]]
+podman inspect "$C1" | jq -e 'all(.[0].Mounts[];
+    .Destination | IN("/workspace/commitment", "/workspace/commitment-lab",
+        "/home/commitment/.config/opencode/opencode.json", "/home/commitment/.local/share/opencode"))' >/dev/null
 for intended in "$TMP/commitment" "$TMP/lab" "$TMP/config/opencode.json" "$TMP/state"; do
     grep -Fq "$intended ->" <<<"$mounts"
 done

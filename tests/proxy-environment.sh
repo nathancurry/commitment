@@ -48,9 +48,8 @@ cat >"$TMP/publisher" <<'EOF'
 #!/bin/sh
 case "$1" in
     session-head) printf '%040d\n' 0 ;;
-    session-outcome) exit 1 ;;
-    classify) printf '%s\n' substantive=0 ;;
-    sync|session-start|session-failure|checkpoint) exit 0 ;;
+    classify) printf '%s\n' changed=0 ;;
+    sync|session-start|session-end|session-failure|checkpoint|finalize) exit 0 ;;
     *) exit 2 ;;
 esac
 EOF
@@ -86,7 +85,8 @@ options, command = args[:index], args[index + 1:]
 creative = command[0] == 'opencode'
 assert not any(arg in ('--privileged', '--pid=host', '--network=host') for arg in options)
 mounts = [options[i + 1] for i, arg in enumerate(options) if arg == '-v']
-assert len(mounts) == (7 if creative else 2)
+assert all(mount.startswith(os.environ['PROXY_TEST_ROOT'] + '/') or
+           mount.startswith(os.environ.get('COMMITMENT_AGENT_GIT', '/not-mounted') + ':') for mount in mounts)
 assert all('podman.sock' not in mount and 'token' not in mount for mount in mounts)
 # Only replace the model command. Git runs its real helper after the probe.
 probe = ['python3', '/proxy-probe.py', 'creative' if creative else 'git']

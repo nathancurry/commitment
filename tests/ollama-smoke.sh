@@ -34,9 +34,11 @@ git -C "$TMP/commitment" commit -m framework >/dev/null
 git -C "$TMP/commitment" push origin main >/dev/null
 
 mkdir -p "$TMP/runtime" "$TMP/config" "$TMP/data"
-cp "$ROOT/run.sh" "$ROOT/inbox-context.sh" "$ROOT/queue-context.sh" "$ROOT/publish.sh" "$TMP/runtime/"
+cp "$ROOT/run.sh" "$ROOT/inbox-context.sh" "$ROOT/queue-context.sh" "$ROOT/publish.sh" \
+    "$ROOT/agent-git.sh" "$ROOT/session-outcome.sh" "$ROOT/commitment-log.sh" \
+    "$ROOT/secret-broker.py" "$ROOT/commitment-secret.py" "$TMP/runtime/"
 cat >"$TMP/runtime/prompt.txt" <<'EOF'
-Work only in /workspace/commitment-lab. Create probe.sh which prints "first", execute and inspect it, then revise it to print exactly "revised". Execute and inspect the revised result. Commit the completed lab change. Do nothing else.
+Work only in /workspace/commitment-lab. Create probe.sh which prints "first", execute and inspect it, then revise it to print exactly "revised". Execute and inspect the revised result. Finish by invoking commitment-outcome COMMITTED_CHANGE "Revised and tested the lab probe" through the shell.
 EOF
 cat >"$TMP/config/config.env" <<EOF
 COMMITMENT_REPO=$TMP/commitment
@@ -54,6 +56,7 @@ SCHEDULE=daily
 PUBLISH_MODE=checkpoint
 CONTAINER_IMAGE=$CONTAINER_IMAGE
 CONTINUE_SESSION=false
+BITWARDEN_SECRETS_ENABLED=false
 GIT_AUTHOR_NAME=Commitment
 GIT_AUTHOR_EMAIL=commitment@localhost
 COMMITMENT_GITHUB_TOKEN_FILE=

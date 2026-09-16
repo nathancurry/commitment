@@ -22,6 +22,9 @@ verify_repo() {
             awk '{print $2}' | grep -Eq '^https?://[^/]*@'; then
         die "credential-bearing submodule URL is forbidden"
     fi
+}
+
+require_primary() {
     [[ $(git -C "$repo" branch --show-current) == "$branch" ]] ||
         die "repository is not on configured branch $branch"
 }
@@ -33,201 +36,82 @@ require_clean() {
 
 append_runlog() {
     local type=$1 summary=$2 outcome=${3:-} record
-    [[ -f "$repo/runlog.jsonl" ]] || : >"$repo/runlog.jsonl"
+    [[ ! -L "$repo/runlog.jsonl" ]] || return 1
     record=$(jq -cn \
         --arg ts "$(date --iso-8601=seconds)" \
         --arg session_id "${COMMITMENT_SESSION_ID:?COMMITMENT_SESSION_ID is required}" \
         --arg type "$type" --arg summary "$summary" --arg outcome "$outcome" \
-        '$ARGS.named | if .outcome == "" then del(.outcome) else . end')
+        '$ARGS.named | if .outcome == "" then del(.outcome) else . end') || return 1
     printf '%s\n' "$record" >>"$repo/runlog.jsonl"
 }
 
-is_bookkeeping_path() {
-    [[ ${AGENT_REPO_KIND:-} == commitment ]] || return 1
-    case $1 in
-        memory/README.md|queue/README.md|requests/README.md|inbox/README.md) return 1 ;;
-        runlog.jsonl|memory/*.md|queue/*.md|requests/*.md) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-bookkeeping_domain() {
-    is_bookkeeping_path "$1" || return 1
-    case $1 in
-        runlog.jsonl) printf '%s\n' runlog ;;
-        memory/*.md) printf '%s\n' memory ;;
-        queue/*.md) printf '%s\n' queue ;;
-        requests/*.md) printf '%s\n' requests ;;
-    esac
-}
-
-is_unchanged_inbox_processing_move() {
-    local status=$1 source=$2 destination=$3 item
-    [[ ${AGENT_REPO_KIND:-} == commitment && $status == R100 ]] || return 1
-    [[ $source == inbox/* ]] || return 1
-    item=${source#inbox/}
-    [[ -n $item && $item != */* && $item != README.md ]] || return 1
-    [[ $destination == "inbox/processed/$item" ]]
-}
-
-is_versioned_path() {
-    [[ ${AGENT_REPO_KIND:-} == commitment ]] || return 1
-    case $1 in
-        memory/README.md|queue/README.md|requests/README.md|inbox/README.md) return 0 ;;
-        runlog.jsonl|memory/*.md|queue/*.md|requests/*.md|inbox/*) return 1 ;;
-        *) return 0 ;;
-    esac
-}
-
-classify_path() {
-    local path=$1 status=$2
-    if ! is_bookkeeping_path "$path" ||
-        [[ $path == @(memory|queue)/*.md && $status == A ]] ||
-        [[ $path == @(queue|requests)/*.md &&
-            ($status == M || $status == T ||
-                ($status == @(R|C)* && $status != @(R|C)100)) ]]; then
-        HAS_SUBSTANTIVE=1
-    fi
-    if is_versioned_path "$path"; then
-        HAS_VERSIONED_SUBSTANTIVE=1
-    fi
-}
-
-classify_diff() {
-    local status source destination source_domain destination_domain
-    while IFS= read -r -d '' status; do
-        HAS_CHANGES=1
-        IFS= read -r -d '' source || die "malformed Git change record"
-        case $status in
-            R*|C*)
-                IFS= read -r -d '' destination || die "malformed Git rename record"
-                if is_unchanged_inbox_processing_move "$status" "$source" "$destination"; then
-                    continue
-                fi
-                classify_path "$source" "$status"
-                classify_path "$destination" "$status"
-                if [[ $status == R* && $status != R100 ]]; then
-                    HAS_SUBSTANTIVE=1
-                fi
-                source_domain=$(bookkeeping_domain "$source" || true)
-                destination_domain=$(bookkeeping_domain "$destination" || true)
-                if [[ -n $source_domain && -n $destination_domain &&
-                    $source_domain != "$destination_domain" ]]; then
-                    HAS_SUBSTANTIVE=1
-                fi
-                ;;
-            *) classify_path "$source" "$status" ;;
-        esac
-    done
-}
-
 classify_changes() {
-    local temporary_index_dir temporary_index diff_record
-    HAS_CHANGES=0
-    HAS_SUBSTANTIVE=0
-    HAS_VERSIONED_SUBSTANTIVE=0
-    HAS_DIRTY=0
-    if [[ -n $(git -C "$repo" status --porcelain) ]]; then
-        HAS_DIRTY=1
-    fi
-    temporary_index_dir=$(mktemp -d)
-    temporary_index="$temporary_index_dir/index"
-    diff_record="$temporary_index_dir/diff"
-    git -C "$repo" diff --name-status -z --find-renames \
-        "$AGENT_BASE_HEAD..HEAD" >"$diff_record"
-    classify_diff <"$diff_record"
-    GIT_INDEX_FILE="$temporary_index" git -C "$repo" read-tree HEAD
-    GIT_INDEX_FILE="$temporary_index" git -C "$repo" add -A
-    GIT_INDEX_FILE="$temporary_index" git -C "$repo" diff --cached \
-        --name-status -z --find-renames "$AGENT_BASE_HEAD" >"$diff_record"
-    classify_diff <"$diff_record"
-    rm -f "$temporary_index" "$diff_record"
-    rmdir "$temporary_index_dir"
+    local paths path changed=0
+    paths=$(mktemp)
+    # Include committed, staged, unstaged, and untracked work. Do not infer
+    # meaning from directories, rename similarity, metadata, or version strings.
+    git -C "$repo" diff --name-only --no-renames -z "$AGENT_BASE_HEAD" HEAD >"$paths"
+    git -C "$repo" diff --name-only --no-renames -z HEAD >>"$paths"
+    git -C "$repo" diff --cached --name-only --no-renames -z >>"$paths"
+    git -C "$repo" ls-files --others --exclude-standard -z >>"$paths"
+    while IFS= read -r -d '' path; do
+        [[ ${AGENT_REPO_KIND:-} == commitment && $path == runlog.jsonl ]] && continue
+        changed=1
+    done <"$paths"
+    rm -f -- "$paths"
+    printf 'changed=%s\n' "$changed"
 }
 
 commit_dirty() {
     local message=$1
     [[ -n $(git -C "$repo" status --porcelain) ]] || return 0
-    [[ -z ${AGENT_GIT_NAME:-} ]] || git -C "$repo" config user.name "$AGENT_GIT_NAME"
-    [[ -z ${AGENT_GIT_EMAIL:-} ]] || git -C "$repo" config user.email "$AGENT_GIT_EMAIL"
-    git -C "$repo" add -A
-    git -C "$repo" commit -m "$message"
+    [[ -z $(git -C "$repo" ls-files -u) ]] ||
+        die "unmerged files preserved for inspection; refusing to mark conflicts resolved"
+    export GIT_AUTHOR_NAME=${AGENT_GIT_NAME:?configured Git identity is required}
+    export GIT_AUTHOR_EMAIL=${AGENT_GIT_EMAIL:?configured Git identity is required}
+    export GIT_COMMITTER_NAME=${AGENT_GIT_COMMITTER_NAME:-$GIT_AUTHOR_NAME}
+    export GIT_COMMITTER_EMAIL=${AGENT_GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}
+    # Recovery must not depend on a project's commit hooks accepting unfinished work.
+    git -C "$repo" -c core.hooksPath=/dev/null add -A
+    git -C "$repo" -c core.hooksPath=/dev/null commit -m "$message"
     require_clean
 }
 
 case ${1:-} in
     session-head)
         verify_repo
-        require_clean
         git -C "$repo" rev-parse HEAD
         ;;
     session-start)
         verify_repo
-        require_clean
-        rm -f "$repo/.git/commitment-session-outcome"
-        append_runlog session_start "Autonomous Commitment session started"
+        append_runlog session_start "Autonomous Commitment session started" ||
+            printf 'commitment-agent-git: session start was not logged\n' >&2
         ;;
-    session-outcome)
-        verify_repo
-        marker="$repo/.git/commitment-session-outcome"
-        [[ -f $marker && ! -L $marker ]] || die "session outcome was not recorded"
-        jq -e \
-            --arg session_id "${COMMITMENT_SESSION_ID:?COMMITMENT_SESSION_ID is required}" '
-                type == "object" and
-                .session_id == $session_id and
-                (.outcome | IN("COMMITTED_CHANGE", "NOOP", "CHECKPOINT_UNFINISHED", "FAILED")) and
-                (.summary | type == "string" and length > 0)
-            ' "$marker" >/dev/null || die "session outcome is invalid"
-        grep -Fqx -- "$(<"$marker")" "$repo/runlog.jsonl" ||
-            die "session outcome is missing from runlog.jsonl"
-        jq -r .outcome "$marker"
+    session-end)
+        append_runlog session_end "${AGENT_SUMMARY:-Session ended}" "${AGENT_OUTCOME:-FAILED}" ||
+            printf 'commitment-agent-git: session end was not logged\n' >&2
         ;;
     session-failure)
-        verify_repo
-        append_runlog failure "${AGENT_FAILURE_SUMMARY:-Session runtime failed}"
-        append_runlog session_end "${AGENT_FAILURE_SUMMARY:-Session runtime failed}" FAILED
+        append_runlog failure "${AGENT_FAILURE_SUMMARY:-Session runtime failed}" ||
+            printf 'commitment-agent-git: failure was not logged\n' >&2
         ;;
     classify)
-        verify_repo
         [[ ${AGENT_BASE_HEAD:-} =~ ^[0-9a-fA-F]{40,64}$ ]] || die "valid AGENT_BASE_HEAD is required"
-        git -C "$repo" merge-base --is-ancestor "$AGENT_BASE_HEAD" HEAD ||
-            die "session history diverged from its starting point"
         classify_changes
-        printf 'substantive=%s\n' "$HAS_SUBSTANTIVE"
         ;;
     finalize)
-        verify_repo
-        [[ ${AGENT_BASE_HEAD:-} =~ ^[0-9a-fA-F]{40,64}$ ]] || die "valid AGENT_BASE_HEAD is required"
-        git -C "$repo" merge-base --is-ancestor "$AGENT_BASE_HEAD" HEAD ||
-            die "session history diverged from its starting point"
-        classify_changes
         case ${AGENT_OUTCOME:-} in
-            NOOP)
-                (( HAS_SUBSTANTIVE == 0 )) || die "NOOP contains substantive changes"
-                commit_dirty "chore: record NOOP session bookkeeping"
+            COMMITTED_CHANGE|NOOP) commit_dirty "session: ${AGENT_OUTCOME}" ;;
+            CHECKPOINT_UNFINISHED|FAILED)
+                commit_dirty "checkpoint: ${AGENT_OUTCOME} after session exit ${AGENT_EXIT_STATUS:-unknown}"
                 ;;
-            COMMITTED_CHANGE)
-                if [[ ${AGENT_REPO_KIND:-} == commitment && $HAS_VERSIONED_SUBSTANTIVE == 1 ]]; then
-                    before_version=$(git -C "$repo" show "$AGENT_BASE_HEAD:VERSION" 2>/dev/null || true)
-                    after_version=$(<"$repo/VERSION")
-                    [[ -n $before_version && $after_version != "$before_version" ]] ||
-                        die "completed substantive Commitment change requires a VERSION bump"
-                fi
-                commit_dirty "chore: record session bookkeeping"
-                ;;
-            CHECKPOINT_UNFINISHED)
-                commit_dirty "checkpoint: unfinished work after session exit ${AGENT_EXIT_STATUS:-0}"
-                ;;
-            FAILED)
-                commit_dirty "checkpoint: unfinished work after session failure ${AGENT_EXIT_STATUS:-unknown}"
-                ;;
-            *) die "invalid AGENT_OUTCOME: ${AGENT_OUTCOME:-missing}" ;;
+            *) die "invalid AGENT_OUTCOME" ;;
         esac
-        printf 'substantive=%s\n' "$HAS_SUBSTANTIVE"
         ;;
     sync)
         bundle=${2:?bundle path is required}
         verify_repo
+        require_primary
         require_clean
         git -C "$repo" update-ref -d refs/commitment/trusted-sync
         git -C "$repo" fetch --no-tags "$bundle" \
@@ -243,7 +127,6 @@ case ${1:-} in
         git -C "$repo" merge --ff-only refs/commitment/trusted-sync
         ;;
     checkpoint)
-        verify_repo
         if [[ -n $(git -C "$repo" status --porcelain) ]]; then
             commit_dirty "checkpoint: unfinished work after session exit ${AGENT_EXIT_STATUS:-unknown}"
             printf 'checkpoint-created\n'
@@ -252,10 +135,11 @@ case ${1:-} in
     export)
         output=${2:?bundle output path is required}
         verify_repo
+        require_primary
         require_clean
         git -C "$repo" bundle create "$output" "refs/heads/$branch"
         ;;
     *)
-        die "usage: $0 {session-head|session-start|session-outcome|session-failure|classify|finalize|sync BUNDLE|checkpoint|export BUNDLE}"
+        die "usage: $0 {session-head|session-start|session-end|session-failure|classify|finalize|sync BUNDLE|checkpoint|export BUNDLE}"
         ;;
 esac

@@ -50,7 +50,7 @@ validate_token_file() {
         die "$TOKEN_SETTING must be a readable regular file: $TOKEN_FILE"
     local token_mode token_path protected_path
     token_path=$(readlink -f -- "$TOKEN_FILE")
-    for protected_path in "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-data"; do
+    for protected_path in "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-data" "$STATE_DIR/opencode-config" "$STATE_DIR/outcomes"; do
         [[ -n $protected_path ]] || continue
         protected_path=$(readlink -f -- "$protected_path") || continue
         case $token_path in
@@ -151,6 +151,9 @@ run_agent_git() {
         -e AGENT_BRANCH="$BRANCH" \
         -e AGENT_GIT_NAME="${GIT_AUTHOR_NAME:-Commitment}" \
         -e AGENT_GIT_EMAIL="${GIT_AUTHOR_EMAIL:-commitment@localhost}" \
+        -e AGENT_GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-${GIT_AUTHOR_NAME:-Commitment}}" \
+        -e AGENT_GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-${GIT_AUTHOR_EMAIL:-commitment@localhost}}" \
+        -e AGENT_SUMMARY="${AGENT_SUMMARY:-}" \
         -e AGENT_EXIT_STATUS="${AGENT_EXIT_STATUS:-unknown}" \
         -e AGENT_REPO_KIND="$KEY" \
         -e AGENT_BASE_HEAD="${AGENT_BASE_HEAD:-}" \
@@ -237,7 +240,7 @@ case $command in
         select_repo "${2:-}"
         "${command}_repo"
         ;;
-    session-head|session-start|session-outcome|session-failure|classify|finalize)
+    session-head|session-start|session-end|session-failure|classify|finalize)
         select_repo "${2:-}"
         run_agent_git "$command"
         ;;
@@ -260,5 +263,5 @@ case $command in
         [[ ${3:-} =~ ^[1-9][0-9]*$ ]] || die "usage: $0 issue-close REPO NUMBER"
         gh_auth issue close "$3" --repo "$(github_slug)"
         ;;
-    *) die "usage: $0 {session-head|session-start|session-outcome|session-failure|classify|finalize|sync|checkpoint|push|issue-list|issue-create|issue-comment|issue-close} ..." ;;
+    *) die "usage: $0 {session-head|session-start|session-end|session-failure|classify|finalize|sync|checkpoint|push|issue-list|issue-create|issue-comment|issue-close} ..." ;;
 esac

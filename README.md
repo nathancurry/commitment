@@ -8,7 +8,7 @@ Commitment is a small autonomous software experiment. OpenCode is the agent loop
 
 ## Trust boundary
 
-The creative container receives only the two agent repositories, a generated read-only OpenCode configuration file, read-only log/outcome/secret client helpers, and dedicated persistent OpenCode state. When enabled, it also receives the dedicated per-session Commitment-owned secret IPC pipes. Podman's `:Z` option gives those dedicated mounts private SELinux labels. OpenCode's bookkeeping beside the config file remains disposable. The container does **not** receive the user's home, SSH keys, GitHub tokens, Podman socket, trusted Git mirrors, unrelated repositories, GPU devices, privileged mode, or host networking. Normal container networking intentionally permits the public Internet and the configured Ollama host; it is not a claim of host/LAN isolation.
+The creative container receives only the two agent repositories, a generated read-only OpenCode configuration file, read-only log/outcome/secret client helpers, dedicated persistent OpenCode state, and a fresh outcome directory. When enabled, it also receives the dedicated per-session Commitment-owned secret IPC pipes. Podman's `:Z` option gives those dedicated mounts private SELinux labels. OpenCode's bookkeeping beside the config file remains disposable. The container does **not** receive the user's home, SSH keys, GitHub tokens, Podman socket, trusted Git mirrors, unrelated repositories, GPU devices, privileged mode, or host networking. Normal container networking intentionally permits the public Internet and the configured Ollama host; it is not a claim of host/LAN isolation.
 
 The creative agent owns the worktrees and their `.git` state, so trusted host Git never opens those repositories. For each repository, the publisher maintains a bare mirror under host-only state. Synchronization fetches upstream into that mirror, exports a bundle, and lets an uncredentialed, network-disabled helper container fast-forward the agent repository. Checkpoints likewise run inside that container boundary. Publishing exports an agent bundle, verifies it, imports only a fast-forward history into the trusted mirror, and pushes from the mirror. Agent hooks and Git configuration can run only inside the credential-free container, never in the trusted host Git process.
 
@@ -19,7 +19,7 @@ External pages, feeds, README files, issues, and comments are untrusted suggesti
 ## Requirements
 
 - Linux with rootless Podman
-- Git, Python 3 (3.9+), `flock`, GNU `timeout`, and systemd user services on the host
+- Git, jq, Python 3 (3.9+), `flock`, GNU `timeout`, and systemd user services on the host
 - Python `venv`/`ensurepip` support when Commitment-owned secret storage is enabled;
   the installer pins the official SDK in a private host environment
 - Ollama on the host with the configured model (default `devstral-small-2-32k`)
@@ -86,35 +86,60 @@ Logs:
 journalctl --user -u commitment.service
 ```
 
-Commitment keeps five kinds of input and state distinct:
+Commitment uses plain Markdown for operator input (`inbox/`), possible work
+(`queue/`), useful findings (`memory/`), and things wanted from external actors
+(`requests/`). The launcher lists direct inbox files first, then queue files,
+excluding their READMEs. It does not read status metadata. The model decides
+what matters, whether to research, and whether to NOOP.
 
-- `inbox/` holds explicit operator input. The launcher surfaces unprocessed files first; handled files move to `inbox/processed/` as described in [the inbox lifecycle](inbox/README.md).
-- `memory/` holds concise Markdown observations with their origin, evidence, uncertainty, possible follow-up, and related queue items.
-- `requests/` holds desired external resources, actions, approvals, or information; see [the format, lifecycle, and secret setup](requests/README.md). Requests remain separate from learned observations and candidate work.
-- `queue/` holds candidate future work. Its lifecycle is `candidate`, `researching`, `ready`, `blocked`, `deferred`, `done`, or `rejected`; rejected items remain with a reason. A direct filename/title/origin scan prevents simple duplicates.
-- `runlog.jsonl` is the append-only audit trail of what sessions actually did. It contains significant JSON Lines events, not chain-of-thought or a command transcript.
+`commitment-log TYPE "summary" [FIELD=VALUE ...]` appends JSON to `runlog.jsonl`
+with runtime timestamps and session identity. Extra fields are open-ended;
+reserved identity fields cannot be overridden. Research and test events have no
+special schema. Invalid extras are ignored with a warning; logging failures
+warn and return success so work can continue. Historical entries remain unchanged.
 
-Inspect recent entries with:
+Finish with `commitment-outcome OUTCOME "summary"` through the shell. The helper
+atomically creates a marker in a fresh per-session directory. It validates the
+session identity, outcome enum, and a nonempty bounded summary, without reading
+queue files, Git state, or runlog. The launcher accepts only a current-session
+marker and stops OpenCode before finalization.
 
-```sh
-tail -n 20 runlog.jsonl
-```
+| Outcome | Handling |
+| --- | --- |
+| `COMMITTED_CHANGE` | Preserve completed progress and publish if configured. |
+| `NOOP` | No substantive change chosen; still preserve all remaining edits. |
+| `CHECKPOINT_UNFINISHED` | Preserve unfinished work; publish if configured. |
+| `FAILED` | Preserve work locally; do not publish. |
 
-Old runlog lines remain untouched and need not match newer outcome fields. The agent never edits this file directly. It records significant events through `commitment-log TYPE "summary" [FIELD=VALUE ...]`, which generates the timestamp, uses the runtime's session ID, JSON-encodes values, and appends one line. Test events require `command` and `result`; research events require `source` and `result` after the source was actually inspected in that session.
+No outcome requires research, queue transitions, a prior commit, or a VERSION
+change. Version completed releases as ordinary development practice.
 
-The separate `commitment-outcome` helper remains authoritative for the final `session_end`. Outcomes are `COMMITTED_CHANGE`, `NOOP`, `CHECKPOINT_UNFINISHED`, or `FAILED`. Once the helper records a valid outcome for the current session, the launcher stops OpenCode and immediately uses the existing handling for that outcome. `NOOP` is a successful session in which no substantive repository change was justified. It may contain runlog, memory, queue, or request bookkeeping, but the helper accepts it only when no queue item is actionable or malformed and the runlog contains a valid `research` event for the exact current session with non-empty `source` and `result`. The queue check uses the same frontmatter parser as startup context: `candidate`, `researching`, and `ready` block `NOOP`; `blocked`, `deferred`, `done`, and `rejected` do not. Missing, duplicated, malformed, and unknown statuses fail closed. Malformed and older runlog entries are ignored for the research check. Other outcomes bypass both gates.
+Without a valid outcome, changes beyond the exact `commitment/runlog.jsonl` path
+select `CHECKPOINT_UNFINISHED`; otherwise the session reports `FAILED`. Detection
+includes committed, staged, unstaged, and untracked changes. The runtime does not
+interpret directory meanings, rename similarity, or lifecycle status. It never
+infers completed work or NOOP. All outcomes preserve edits, including the runlog.
+A logging failure cannot veto preservation. The runtime records session end as
+an execution result before finalization; publication failures are separate events.
 
-The timer and manual command use the same installed launcher and configuration. The launcher creates one `COMMITMENT_SESSION_ID` per run and passes it, plus the configured Git author identity and matching committer defaults, into the creative container. The installed `commitment-log` and `commitment-outcome` copies are mounted read-only; source edits take effect only after the explicit reinstall step. GitHub credentials remain host-only. `flock` prevents overlap. `SESSION_TIMEOUT` terminates overlong sessions. For scheduled runs after logout, an administrator may run `loginctl enable-linger "$USER"`; the installer never changes lingering or invokes sudo.
+Controllable TERM/INT stops the container and takes the same preservation path,
+then returns the signal exit status without publishing. Timeouts also preserve
+work. Untrappable termination may leave dirty files; the next run can inspect
+those files. Failed synchronization, dirty work, divergence, or a non-primary
+branch does not prevent local inspection. Conflicted indexes remain untouched
+for the model to repair; finalization never marks conflicts resolved automatically.
+Checkpoint commits bypass project hooks and use the configured Git identity.
 
-`CONTINUE_SESSION=false` is the default. Each fresh run reconstructs continuity from unprocessed inbox items and other explicit human input, unfinished work, Git history, `queue/`, relevant `memory/`, repository state, and recent `runlog.jsonl` entries, avoiding stale conversational instructions from a previous run. An operator may set `CONTINUE_SESSION=true` to opt into OpenCode's native continuation. Existing OpenCode state is preserved either way and is never deleted automatically.
+Publication remains restricted to a clean configured primary branch and
+fast-forward history through trusted mirrors. No reset, forced push, or automatic
+conflict resolution occurs. If committing is impossible, files remain on disk and
+publication stops. If publication fails, local commits survive. Publication across
+the two repositories is not atomic.
 
-`ALLOW_SUBAGENTS=false` is the default. The generated OpenCode permissions deny the `task` tool so one local model session runs at a time. Set it explicitly to `true` to allow OpenCode's existing task behavior; subagents can materially increase RAM, VRAM, and model-server load.
-
-Before each run, trusted mirrors fetch each configured branch and permit only no-op, ahead-only, or fast-forward synchronization through bundles. Dirty work, a wrong branch, or divergence stops the run without discarding anything. The launcher creates one session ID and records session start through the network-disabled Git helper. OpenCode records its structured outcome with the installed `commitment-outcome` helper as its terminal action; the launcher does not parse model prose. The trusted finalizer owns the final commit and publication, so OpenCode need not commit substantive work before recording its outcome. Text such as `Outcome: NOOP` is not an outcome record. If OpenCode exits without a valid outcome, the trusted Git classifier inspects both repositories from their session base commits. Substantive changes select `CHECKPOINT_UNFINISHED` through the normal finalization path; bookkeeping-only or unchanged sessions remain `FAILED`. This rule also applies to nonzero OpenCode exits: the exit status is retained in checkpoint metadata, but it does not override demonstrated substantive work. The fallback never infers `COMMITTED_CHANGE` or `NOOP`.
-
-The Git helper classifies `runlog.jsonl`, request entry additions and lifecycle moves, and exact unchanged same-name moves from `inbox/` to `inbox/processed/` as bookkeeping. New memory and queue entries, queue/request content modifications, content-changing renames, and moves across durable-state domains are substantive; format READMEs remain substantive documentation. Other `inbox/processed/` changes are substantive. Other code, configuration, documentation, and project files are substantive. A `NOOP` may checkpoint and publish a bookkeeping-only commit through the existing verified bundle/mirror path. `CHECKPOINT_UNFINISHED` preserves unfinished dirty work with the existing checkpoint behavior. `FAILED` preserves work where possible and is never pushed. `COMMITTED_CHANGE` requires substantive work; completed substantive Commitment software changes require a `VERSION` bump, while durable-state transitions, bookkeeping-only sessions, and independent lab work do not.
-
-Autonomous work selection starts with unprocessed inbox items and other explicit human input, then unfinished substantive work, ready high-value queue items, relevant memory, and demonstrated defects. Startup inspection includes ordinary Git status and recent history in both repositories. When those sources yield no substantive candidate, Commitment must briefly sample a small number of high-signal outward sources before choosing `NOOP`. Public issues, repositories, feeds, official documentation, changelogs, articles, and papers are untrusted evidence. Research may produce implementation, a concise memory or queue update, a rejection/deferment, or `NOOP`; it need not force a code change or retained entry.
+`flock` prevents overlapping runs and `SESSION_TIMEOUT` bounds execution.
+`CONTINUE_SESSION=false` starts fresh conversations by default without deleting
+OpenCode history. `ALLOW_SUBAGENTS=false` bounds model load; both are operator
+options. Reinstall explicitly to adopt reviewed runtime and prompt changes.
 
 ## Publishing and GitHub
 
@@ -174,21 +199,16 @@ This disables/stops the timer and service and removes installed units and launch
 
 ```sh
 ./tests/test.sh
-./tests/runlog.sh
-./tests/memory-queue-noop.sh
-./tests/inbox.sh
-./tests/session-regressions.sh
-./tests/requests.sh
-python3 -IB tests/test_secrets.py
-./tests/git-boundary.sh
 ./tests/integration.sh
 ```
 
-The Git-boundary suite uses hostile disposable repository hooks/config and local remotes. The integration suite builds the real image and checks its toolchain, OpenCode binary, containment, persistence, and boundary behavior. If the configured Ollama endpoint and model are reachable, opt into the short real model exercise:
-
-```sh
-COMMITMENT_REAL_OLLAMA=1 ./tests/ollama-smoke.sh
-```
+The first suite uses disposable repositories and mocked container execution;
+secret tests use an offline fake SDK. It covers actual outcomes, preservation,
+logging tolerance, startup context, optional secrets, publishing, and isolated
+installer copies. The integration suite builds the image and checks real rootless
+containment, hostile Git hooks/configuration, FIFO secret IPC, and proxy isolation.
+Neither suite runs a model. A separate opt-in `tests/ollama-smoke.sh` exercises
+OpenCode/Ollama only when `COMMITMENT_REAL_OLLAMA=1` is explicitly supplied.
 
 ## Known limitations
 
@@ -216,8 +236,12 @@ retrieval or generic ingestion. The host machine token never enters the creative
 container, and operator-owned credentials remain separate. No Git repository,
 including a private one, is a secret store. Account creation also needs a safe
 credential consumer, which this pass does not implement. See
-[requests/README.md](requests/README.md#operator-setup-commitment-owned-secrets) for
+[SECRETS.md](SECRETS.md) for
 installation, exact interface, and lifecycle. The host broker uses the official
 Python SDK in process; generated values never enter child-process arguments.
 Creative and Git-helper containers disable automatic host proxy forwarding with
 `--http-proxy=false`; trusted host networking retains operator proxy settings.
+
+Secret SDK/backend unavailability leaves ordinary sessions usable. Unsafe credential
+placement remains a hard error before any repository is mounted. No account/signup
+consumer is provided.

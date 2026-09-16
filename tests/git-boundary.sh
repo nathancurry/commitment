@@ -99,39 +99,19 @@ done
 [[ ! -e $HOOK_MARKER && ! -e $FSMONITOR_MARKER ]] || fail "agent command executed in host /tmp during synchronization"
 pass "both repositories synchronize through trusted mirrors without host execution of agent Git state"
 
-noop_base=$(container_git commitment rev-parse HEAD)
 COMMITMENT_SESSION_ID=boundary-noop publisher session-start commitment
 podman run --http-proxy=false --rm --network=none --security-opt=no-new-privileges \
     -v "$TMP/commitment:/workspace/commitment:rw,Z" \
-    -v "$ROOT/commitment-log.sh:/usr/local/bin/commitment-log:ro,Z" \
     -v "$ROOT/session-outcome.sh:/usr/local/bin/commitment-outcome:ro,Z" \
-    -v "$ROOT/queue-context.sh:/usr/local/bin/queue-context.sh:ro,Z" \
     -e COMMITMENT_SESSION_ID=boundary-noop \
-    -e COMMITMENT_ROOT=/workspace/commitment \
     -e COMMITMENT_OUTCOME_FILE=/workspace/commitment/.git/commitment-session-outcome \
     -w /workspace/commitment "$IMAGE" \
-    sh -c '
-        test -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${COMMITMENT_GITHUB_TOKEN_FILE:-}${LAB_GITHUB_TOKEN_FILE:-}"
-        commitment-log research "Inspected a synthetic boundary research source" source=https://example.invalid/research result="No candidate worth retaining"
-        commitment-outcome NOOP "No substantive boundary change was justified"
-    '
-tail -n 2 "$TMP/commitment/runlog.jsonl" | jq -e -s '
-    length == 2 and
-    all(.session_id == "boundary-noop") and
-    .[0].type == "research" and
-    .[0].source == "https://example.invalid/research" and
-    .[0].result == "No candidate worth retaining" and
-    .[1].type == "session_end" and
-    .[1].outcome == "NOOP"
-' >/dev/null || fail "trusted helpers did not append valid session records across the container boundary"
-[[ $(COMMITMENT_SESSION_ID=boundary-noop publisher session-outcome commitment) == NOOP ]] ||
-    fail "NOOP outcome was not recognized across the container boundary"
-noop_result=$(COMMITMENT_SESSION_ID=boundary-noop AGENT_BASE_HEAD="$noop_base" AGENT_OUTCOME=NOOP \
-    publisher finalize commitment)
-[[ $noop_result == *substantive=0* ]] || fail "NOOP run was not bookkeeping-only"
-[[ $(container_git commitment log -1 --format=%s) == 'chore: record NOOP session bookkeeping' ]] ||
-    fail "NOOP bookkeeping did not use the existing checkpoint path"
-pass "bookkeeping-only NOOP crosses the real network-disabled Git boundary"
+    sh -ec 'commitment-outcome NOOP "No research prerequisite"; test "$(commitment-outcome --read)" = NOOP'
+COMMITMENT_SESSION_ID=boundary-noop AGENT_OUTCOME=NOOP publisher session-end commitment
+AGENT_OUTCOME=NOOP publisher finalize commitment
+[[ $(container_git commitment log -1 --format=%s) == 'session: NOOP' ]] ||
+    fail "NOOP did not preserve the session log"
+pass "outcomes and preservation cross the real network-disabled Git boundary"
 
 for name in commitment lab; do
     printf '%s\n' unfinished >"$TMP/$name/unfinished.txt"

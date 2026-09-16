@@ -39,14 +39,18 @@ GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}
 [[ -d "$LAB_REPO/.git" ]] || die "not a Git repository: $LAB_REPO"
 [[ -x "$PUBLISHER" ]] || die "trusted publisher not installed: $PUBLISHER"
 [[ -x "$OUTCOME_HELPER" ]] || die "session outcome helper not installed: $OUTCOME_HELPER"
-[[ -x "$LOG_HELPER" ]] || die "runlog helper not installed: $LOG_HELPER"
+
 [[ -x "$INBOX_CONTEXT_HELPER" ]] || die "inbox context helper not installed: $INBOX_CONTEXT_HELPER"
 [[ -x "$QUEUE_CONTEXT_HELPER" ]] || die "queue context helper not installed: $QUEUE_CONTEXT_HELPER"
 
 mkdir -p -m 700 "$STATE_DIR" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data"
 # Cleanup takes the same lock before inspecting residue; active sessions win.
-python3 -I "$RUNTIME_DIR/secret-broker.py" --cleanup "$STATE_DIR" ||
-    die "unsafe secret runtime state; check ownership and permissions"
+if [[ -f $RUNTIME_DIR/secret-broker.py ]]; then
+    if ! python3 -I "$RUNTIME_DIR/secret-broker.py" --cleanup "$STATE_DIR"; then
+        note "secret cleanup unavailable; continuing without secret access"
+        BITWARDEN_SECRETS_ENABLED=false
+    fi
+fi
 exec 9>"$STATE_DIR/run.lock"
 flock -n 9 || die "another run is active"
 COMMITMENT_SESSION_ID="$(date +'%Y%m%dT%H%M%S%z')-$$"
@@ -55,20 +59,22 @@ for value in "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR"; do
     [[ $value == /* ]] || die "repository and state paths must be absolute"
 done
 [[ $COMMITMENT_REPO != "$LAB_REPO" ]] || die "repository paths must differ"
-if [[ $BITWARDEN_SECRETS_ENABLED == true ]]; then
-    command -v python3 >/dev/null || die "secret capability requires host Python 3"
-    BITWARDEN_SECRETS_TOKEN_FILE=${BITWARDEN_SECRETS_TOKEN_FILE:-$CONFIG_HOME/commitment/bitwarden-secrets-token}
-    # Reject misplaced credential paths before even the uncredentialed Git helper
-    # mounts a repository. This checks paths only; it never reads token contents.
-    python3 -I "$RUNTIME_DIR/secret-broker.py" --check-paths "$BITWARDEN_SECRETS_TOKEN_FILE" \
-        "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data" ||
-        die "Bitwarden token path must stay outside all creative mounts"
-fi
+# Check placement even if secret service startup later fails. Optional capability
+# failure must never make a configured host token safe to expose in a mount.
+BITWARDEN_SECRETS_TOKEN_FILE=${BITWARDEN_SECRETS_TOKEN_FILE:-$CONFIG_HOME/commitment/bitwarden-secrets-token}
+secret_token_path=$(readlink -m -- "$BITWARDEN_SECRETS_TOKEN_FILE")
+for mount in "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data" "$STATE_DIR/outcomes"; do
+    mount_path=$(readlink -m -- "$mount")
+    case $secret_token_path in
+        "$mount_path"|"$mount_path"/*) die "Bitwarden token path must stay outside all creative mounts" ;;
+    esac
+done
 
-"$PUBLISHER" sync commitment
-"$PUBLISHER" sync lab
-commitment_base=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-head commitment)
-lab_base=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-head lab)
+for repo in commitment lab; do
+    "$PUBLISHER" sync "$repo" || note "$repo synchronization unavailable; local work remains inspectable"
+done
+commitment_base=$("$PUBLISHER" session-head commitment)
+lab_base=$("$PUBLISHER" session-head lab)
 
 json_escape() {
     local value=$1
@@ -140,7 +146,7 @@ inbox_context=$("$INBOX_CONTEXT_HELPER" "$COMMITMENT_REPO")
 if [[ -n $inbox_context ]]; then
     prompt="$inbox_context"$'\n\n'"$prompt"
 fi
-COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-start commitment
+COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-start commitment || note "session start logging unavailable"
 
 continue_args=()
 if [[ ${CONTINUE_SESSION:-false} == true && -e "$STATE_DIR/session-started" ]]; then
@@ -170,36 +176,56 @@ cleanup_secrets() {
         secret_directory=''
     fi
 }
-trap cleanup_secrets EXIT
+mkdir -p -m 700 "$STATE_DIR/outcomes"
+outcome_directory=$(mktemp -d "$STATE_DIR/outcomes/session.XXXXXX")
+export COMMITMENT_OUTCOME_FILE="$outcome_directory/outcome"
+export COMMITMENT_SESSION_ID
+cleanup() {
+    cleanup_secrets
+    rm -f -- "$outcome_directory/outcome"
+    rmdir -- "$outcome_directory" 2>/dev/null || true
+}
+trap cleanup EXIT
+interrupted=0
 stop_session() {
+    interrupted=$1
     if [[ -n ${agent_pid:-} ]]; then
+        podman stop --time 5 "$container_name" >/dev/null 2>&1 || true
         kill -TERM "$agent_pid" 2>/dev/null || true
-        wait "$agent_pid" 2>/dev/null || true
-        podman rm -f "$container_name" >/dev/null 2>&1 || true
     fi
-    exit "$1"
+    # Return to the common preservation path, including when wait is interrupted.
 }
 trap 'stop_session 143' TERM
 trap 'stop_session 130' INT
-[[ -x "$RUNTIME_DIR/commitment-secret.py" ]] || die "secret client not installed; reinstall trusted runtime"
-if [[ $BITWARDEN_SECRETS_ENABLED == true ]]; then
-    command -v python3 >/dev/null || die "secret capability requires host Python 3"
-    [[ -x "$RUNTIME_DIR/secrets-venv/bin/python" ]] || die "secret SDK environment missing; reinstall trusted runtime"
-    secret_directory=$(mktemp -d "$STATE_DIR/secrets-session.XXXXXX")
-    BITWARDEN_SECRETS_ENABLED=true \
-        BITWARDEN_PROJECT_ID="${BITWARDEN_PROJECT_ID:-}" \
-        BITWARDEN_SECRETS_TOKEN_FILE="${BITWARDEN_SECRETS_TOKEN_FILE:-$CONFIG_HOME/commitment/bitwarden-secrets-token}" \
-        "$RUNTIME_DIR/secrets-venv/bin/python" -IB "$RUNTIME_DIR/secret-broker.py" "$secret_directory" "$$" \
-        "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data" &
-    secret_pid=$!
-    for (( attempt=0; attempt<300; attempt++ )); do
-        [[ -f "$secret_directory/lock" ]] && break
-        kill -0 "$secret_pid" 2>/dev/null || die "secret broker startup failed"
-        sleep 0.1
-    done
-    [[ -f "$secret_directory/lock" ]] || die "secret broker startup timed out"
-    secret_args=(-v "$secret_directory:/run/commitment-secrets:ro,Z")
+if [[ -x $RUNTIME_DIR/commitment-secret.py ]]; then
+    secret_args=(-v "$RUNTIME_DIR/commitment-secret.py:/usr/local/bin/commitment-secret:ro,Z")
 fi
+if [[ $BITWARDEN_SECRETS_ENABLED == true && $interrupted == 0 ]]; then
+    if [[ -x $RUNTIME_DIR/secrets-venv/bin/python && -f $RUNTIME_DIR/secret-broker.py && -x $RUNTIME_DIR/commitment-secret.py ]]; then
+        secret_directory=$(mktemp -d "$STATE_DIR/secrets-session.XXXXXX")
+        BITWARDEN_SECRETS_ENABLED=true \
+            BITWARDEN_PROJECT_ID="${BITWARDEN_PROJECT_ID:-}" \
+            BITWARDEN_SECRETS_TOKEN_FILE="$BITWARDEN_SECRETS_TOKEN_FILE" \
+            "$RUNTIME_DIR/secrets-venv/bin/python" -IB "$RUNTIME_DIR/secret-broker.py" "$secret_directory" "$$" \
+            "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-config" "$STATE_DIR/opencode-data" "$outcome_directory" &
+        secret_pid=$!
+        for (( attempt=0; attempt<300; attempt++ )); do
+            [[ -f "$secret_directory/lock" || $interrupted != 0 ]] && break
+            kill -0 "$secret_pid" 2>/dev/null || break
+            sleep 0.1
+        done
+        if [[ -f $secret_directory/lock ]]; then
+            secret_args+=(-v "$secret_directory:/run/commitment-secrets:ro,Z")
+        else
+            note "secret broker unavailable; continuing without secret access"
+            cleanup_secrets
+        fi
+    else
+        note "secret SDK or helpers unavailable; continuing without secret access"
+    fi
+fi
+log_args=()
+[[ ! -x $LOG_HELPER ]] || log_args=(-v "$LOG_HELPER:/usr/local/bin/commitment-log:ro,Z")
 container_args=(run --http-proxy=false --rm --name "$container_name"
     --add-host=host.containers.internal:host-gateway
     --security-opt=no-new-privileges
@@ -211,9 +237,8 @@ container_args=(run --http-proxy=false --rm --name "$container_name"
     -v "$STATE_DIR/opencode-config/opencode.json:/home/commitment/.config/opencode/opencode.json:ro,Z"
     -v "$STATE_DIR/opencode-data:/home/commitment/.local/share/opencode:rw,Z"
     -v "$OUTCOME_HELPER:/usr/local/bin/commitment-outcome:ro,Z"
-    -v "$LOG_HELPER:/usr/local/bin/commitment-log:ro,Z"
-    -v "$QUEUE_CONTEXT_HELPER:/usr/local/bin/queue-context.sh:ro,Z"
-    -v "$RUNTIME_DIR/commitment-secret.py:/usr/local/bin/commitment-secret:ro,Z"
+    -v "$outcome_directory:/run/commitment-outcome:rw,Z"
+    "${log_args[@]}"
     "${secret_args[@]}"
     -w /workspace/commitment
     -e HOME=/home/commitment
@@ -222,7 +247,7 @@ container_args=(run --http-proxy=false --rm --name "$container_name"
     -e OPENCODE_ENABLE_EXA=1
     -e COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID"
     -e COMMITMENT_ROOT=/workspace/commitment
-    -e COMMITMENT_OUTCOME_FILE=/workspace/commitment/.git/commitment-session-outcome
+    -e COMMITMENT_OUTCOME_FILE=/run/commitment-outcome/outcome
     -e GIT_AUTHOR_NAME="$GIT_AUTHOR_NAME"
     -e GIT_AUTHOR_EMAIL="$GIT_AUTHOR_EMAIL"
     -e GIT_COMMITTER_NAME="$GIT_COMMITTER_NAME"
@@ -231,120 +256,85 @@ container_args=(run --http-proxy=false --rm --name "$container_name"
 
 note "starting OpenCode session (timeout ${SESSION_TIMEOUT}s)"
 agent_status=0
-outcome_recorded=false
-timeout --signal=TERM --kill-after=30 "$SESSION_TIMEOUT" podman "${container_args[@]}" &
-agent_pid=$!
-while kill -0 "$agent_pid" 2>/dev/null; do
-    if COMMITMENT_ROOT="$COMMITMENT_REPO" COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" \
-        "$OUTCOME_HELPER" --read >/dev/null 2>&1; then
-        outcome_recorded=true
-        note "trusted session outcome recorded; stopping OpenCode"
-        podman stop --time 5 "$container_name" >/dev/null 2>&1 || true
-        if kill -0 "$agent_pid" 2>/dev/null; then
+if (( interrupted == 0 )); then
+    timeout --signal=TERM --kill-after=30 "$SESSION_TIMEOUT" podman "${container_args[@]}" &
+    agent_pid=$!
+    while kill -0 "$agent_pid" 2>/dev/null; do
+        if "$OUTCOME_HELPER" --read >/dev/null 2>&1; then
+            note "session outcome recorded; stopping OpenCode"
+            podman stop --time 5 "$container_name" >/dev/null 2>&1 || true
             kill -TERM "$agent_pid" 2>/dev/null || true
+            break
         fi
-        break
-    fi
-    sleep 0.5
-done
-wait "$agent_pid" || agent_status=$?
-podman rm -f "$container_name" >/dev/null 2>&1 || true
+        (( interrupted == 0 )) || break
+        sleep 0.5
+    done
+    wait "$agent_pid" || agent_status=$?
+fi
+# Do not snapshot while creative processes can still write. If stopping fails,
+# leave the worktree intact for inspection rather than publishing a moving target.
+trap '' TERM INT
+podman rm -f "$container_name" >/dev/null || die "cannot stop creative container; work remains on disk"
 cleanup_secrets
-if (( agent_status != 125 && agent_status != 126 && agent_status != 127 )); then
-    touch "$STATE_DIR/session-started"
-fi
+(( interrupted == 0 )) || agent_status=$interrupted
+touch "$STATE_DIR/session-started"
 
-if outcome=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-outcome commitment); then
-    outcome_recorded=true
+summary="Session ended with process status $agent_status"
+if outcome=$("$OUTCOME_HELPER" --read 2>/dev/null); then
+    summary=$(jq -r .summary "$COMMITMENT_OUTCOME_FILE")
 else
-    outcome_recorded=false
-fi
-
-finalize_exit_status=0
-if ! $outcome_recorded; then
-    classification_failed=0
-    commitment_classification=''
-    lab_classification=''
-    if ! commitment_classification=$(AGENT_BASE_HEAD="$commitment_base" "$PUBLISHER" classify commitment); then
-        classification_failed=1
-    fi
-    if ! lab_classification=$(AGENT_BASE_HEAD="$lab_base" "$PUBLISHER" classify lab); then
-        classification_failed=1
-    fi
-
-    if (( classification_failed == 0 )) &&
-        [[ $commitment_classification == *substantive=1* || $lab_classification == *substantive=1* ]]; then
-        fallback_summary="OpenCode exited without a valid session outcome; substantive work preserved as unfinished"
-        rm -f -- "$COMMITMENT_REPO/.git/commitment-session-outcome"
-        COMMITMENT_ROOT="$COMMITMENT_REPO" COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" \
-            "$OUTCOME_HELPER" CHECKPOINT_UNFINISHED "$fallback_summary"
-        outcome=CHECKPOINT_UNFINISHED
-        outcome_recorded=true
-        finalize_exit_status=$agent_status
-        note "trusted fallback selected CHECKPOINT_UNFINISHED for substantive work"
-    else
-        if (( agent_status != 0 )); then
-            failure_summary="OpenCode exited with status $agent_status"
-            failure_status=$agent_status
-        elif (( classification_failed != 0 )); then
-            failure_summary="OpenCode exited without an outcome and repository classification failed"
-            failure_status=1
+    changed=false
+    classification_failed=false
+    for repo in commitment lab; do
+        base=$commitment_base
+        [[ $repo != lab ]] || base=$lab_base
+        if result=$(AGENT_BASE_HEAD="$base" "$PUBLISHER" classify "$repo"); then
+            [[ $result != *changed=1* ]] || changed=true
         else
-            failure_summary="OpenCode exited without a valid session outcome"
-            failure_status=1
+            classification_failed=true
         fi
-        COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
-            "$PUBLISHER" session-failure commitment || true
-        AGENT_EXIT_STATUS="$failure_status" "$PUBLISHER" checkpoint commitment || true
-        AGENT_EXIT_STATUS="$failure_status" "$PUBLISHER" checkpoint lab || true
-        note "$failure_summary; work was checkpointed where possible; nothing was published"
-        exit "$failure_status"
+    done
+    if $changed; then
+        outcome=CHECKPOINT_UNFINISHED
+        summary="No valid outcome; changed work preserved as unfinished (exit $agent_status)"
+    else
+        outcome=FAILED
+        summary="No valid outcome (exit $agent_status)"
+        ! $classification_failed || summary="No valid outcome; Git inspection failed; work remains available"
     fi
+    note "$outcome: $summary"
 fi
 
-finalize_failed=0
-commitment_result=''
-lab_result=''
-if ! commitment_result=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_EXIT_STATUS="$finalize_exit_status" \
-    AGENT_BASE_HEAD="$commitment_base" AGENT_OUTCOME="$outcome" "$PUBLISHER" finalize commitment); then
-    finalize_failed=1
+# Outcome is the model/session result, not a claim that publication succeeded.
+# Logging is best effort and cannot authorize or veto preservation.
+AGENT_OUTCOME="$outcome" AGENT_SUMMARY="$summary" "$PUBLISHER" session-end commitment || note "session end logging unavailable"
+finalize_failed=false
+for repo in commitment lab; do
+    if ! AGENT_EXIT_STATUS="$agent_status" AGENT_OUTCOME="$outcome" "$PUBLISHER" finalize "$repo"; then
+        finalize_failed=true
+        note "$repo could not be committed; existing files/history preserved for inspection"
+    fi
+done
+if $finalize_failed; then
+    die "preservation incomplete; nothing published"
 fi
-if ! lab_result=$(COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_EXIT_STATUS="$finalize_exit_status" \
-    AGENT_BASE_HEAD="$lab_base" AGENT_OUTCOME="$outcome" "$PUBLISHER" finalize lab); then
-    finalize_failed=1
+# An operator stop preserves locally and must not unexpectedly start publishing.
+if (( interrupted != 0 )); then
+    note "interrupted session preserved locally"
+    exit "$interrupted"
 fi
-if [[ $outcome == COMMITTED_CHANGE && $commitment_result != *substantive=1* && $lab_result != *substantive=1* ]]; then
-    finalize_failed=1
-fi
-if (( finalize_failed != 0 )); then
-    failure_summary="Session outcome did not match repository state"
-    COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
-        "$PUBLISHER" session-failure commitment || true
-    AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint commitment || true
-    AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint lab || true
-    die "$failure_summary; work was checkpointed where possible and nothing was published"
-fi
-
 if [[ $outcome == FAILED ]]; then
-    note "session reported FAILED; work was checkpointed and nothing was published"
+    note "session failed; local work preserved; nothing published"
     exit 1
 fi
-
 if [[ $PUBLISH_MODE == push ]]; then
-    if ! "$PUBLISHER" push commitment; then
-        failure_summary="Commitment publication failed"
-        COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
-            "$PUBLISHER" session-failure commitment || true
-        AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint commitment || true
-        die "commitment push failed; local commits preserved"
-    fi
-    if ! "$PUBLISHER" push lab; then
-        failure_summary="Lab publication failed"
-        COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" AGENT_FAILURE_SUMMARY="$failure_summary" \
-            "$PUBLISHER" session-failure commitment || true
-        AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint commitment || true
-        die "lab push failed; local commits preserved"
-    fi
+    for repo in commitment lab; do
+        if ! "$PUBLISHER" push "$repo"; then
+            AGENT_FAILURE_SUMMARY="$repo publication failed; local commits preserved" \
+                "$PUBLISHER" session-failure commitment || true
+            AGENT_EXIT_STATUS=1 "$PUBLISHER" checkpoint commitment || true
+            die "$repo push failed; local commits preserved"
+        fi
+    done
 fi
-
 note "session completed with outcome $outcome in $PUBLISH_MODE mode"

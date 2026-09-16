@@ -21,7 +21,7 @@ LIBEXEC_DIR="$HOME/.local/libexec/commitment"
 BIN_DIR="$HOME/.local/bin"
 UNIT_DIR="$CONFIG_HOME/systemd/user"
 
-for command in podman git flock timeout systemctl readlink python3; do
+for command in podman git jq flock timeout systemctl readlink python3; do
     command -v "$command" >/dev/null || die "required command not found: $command"
 done
 [[ $(podman info --format '{{.Host.Security.Rootless}}') == true ]] || die "Podman must run rootless"

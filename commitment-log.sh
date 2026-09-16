@@ -1,77 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-die() { printf 'commitment-log: %s\n' "$*" >&2; exit 1; }
-
-normalize_summary() {
-    jq -nr --arg value "$1" '$value | gsub("[[:space:]]+"; " ") | sub("^ "; "") | sub(" $"; "")'
-}
-
-event_type=${1:-}
-summary=${2:-}
-case $event_type in
-    observation|candidate|decision|change|research|test|failure|checkpoint) ;;
-    '') die "usage: commitment-log TYPE SUMMARY [FIELD=VALUE ...]" ;;
-    *) die "unsupported agent event type: $event_type" ;;
-esac
-[[ -n ${COMMITMENT_SESSION_ID:-} ]] || die "COMMITMENT_SESSION_ID is required"
-summary=$(normalize_summary "$summary")
-[[ -n $summary ]] || die "a summary is required"
-shift 2
-
-fields=()
-seen=' '
-has_command=false
-has_source=false
-has_result=false
-for field in "$@"; do
-    [[ $field == *=* ]] || die "optional fields must use FIELD=VALUE"
-    key=${field%%=*}
-    value=${field#*=}
-    case $key in
-        ts|session_id|type|summary|outcome) die "$key is owned by trusted runtime machinery" ;;
-        repo|source|reason|next|version|commit|command|result) ;;
-        *) die "unsupported field: $key" ;;
-    esac
-    [[ $seen != *" $key "* ]] || die "duplicate field: $key"
-    seen+="$key "
-    case $key in
-        command)
-            [[ -n $value ]] || die "test command must not be empty"
-            has_command=true
-            ;;
-        source)
-            [[ -n $value ]] && has_source=true
-            ;;
-        result)
-            [[ -n $value ]] || die "test result must not be empty"
-            has_result=true
-            ;;
-    esac
-    fields+=("$key=$value")
-done
-
-if [[ $event_type == test ]]; then
-    $has_command && $has_result || die "test events require command and result"
-elif [[ $event_type == research ]]; then
-    $has_source && $has_result || die "research events require source and result"
-fi
-
-root=${COMMITMENT_ROOT:-$(git rev-parse --show-toplevel)}
-[[ -d "$root/.git" ]] || die "Commitment repository is unavailable: $root"
-[[ -f "$root/runlog.jsonl" ]] || die "runlog.jsonl is missing"
-
-record=$(jq -cn \
-    --arg ts "$(date --iso-8601=seconds)" \
-    --arg session_id "$COMMITMENT_SESSION_ID" \
-    --arg type "$event_type" \
-    --arg summary "$summary" \
-    --args '
-        def field:
-            (index("=")) as $separator |
-            {key: .[0:$separator], value: .[$separator + 1:]};
+warn() { printf 'commitment-log: %s\n' "$*" >&2; }
+append_event() (
+    [[ -n ${COMMITMENT_SESSION_ID:-} && $# -ge 2 ]] || return 1
+    event_type=$1 summary=$2
+    shift 2
+    [[ -n $event_type && -n $summary ]] || return 1
+    root=${COMMITMENT_ROOT:-$(git rev-parse --show-toplevel)}
+    [[ ! -L $root/runlog.jsonl ]] || return 1
+    fields=()
+    for field in "$@"; do
+        if [[ $field != *=* ]]; then
+            warn "ignored extra argument without '='"
+            continue
+        fi
+        key=${field%%=*}
+        case $key in
+            ''|ts|session_id|type|summary) warn "ignored reserved or empty field" ;;
+            *) fields+=("$field") ;;
+        esac
+    done
+    record=$(jq -cn --arg ts "$(date --iso-8601=seconds)" \
+        --arg session_id "$COMMITMENT_SESSION_ID" --arg type "$event_type" \
+        --arg summary "$summary" --args '
         reduce $ARGS.positional[] as $item
-            ({ts: $ts, session_id: $session_id, type: $type, summary: $summary};
-             ($item | field) as $field | .[$field.key] = $field.value)
-    ' "${fields[@]}")
-printf '%s\n' "$record" >>"$root/runlog.jsonl"
+            ({ts:$ts, session_id:$session_id, type:$type, summary:$summary};
+             ($item | index("=")) as $at | .[$item[0:$at]] = $item[$at+1:])
+    ' "${fields[@]}") || return 1
+    printf '%s\n' "$record" >>"$root/runlog.jsonl"
+)
+
+# Logging is observational. Bad extras, unavailable storage, and missing context
+# must not turn useful work into a failed shell workflow.
+append_event "$@" || warn "event not recorded; work may continue"
+exit 0
