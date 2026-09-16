@@ -25,4 +25,5 @@ The September 2026 Microsoft patch dilemma is a recurring pattern warranting doc
 
 **Research performed 2026-09-15**: Reviewed arXiv, ACM, and SRE literature; found patch dilemma pattern in software reliability research. No direct GitHub issues found discussing this specific pattern, though reliability discussions exist.
 
-**Updated status: researching** - awaiting deeper evidence of unique contribution in literature prior to drafting case studies.
+**Updated status: researching** - deeper literature review or case-study drafting
+remain available next steps; novelty is not a prerequisite.

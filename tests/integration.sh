@@ -26,11 +26,14 @@ for repo in commitment lab; do
     git -C "$TMP/$repo" config --unset user.name
     git -C "$TMP/$repo" config --unset user.email
 done
+mkdir -p "$TMP/commitment/.opencode/agents"
+cp "$ROOT/.opencode/agents/commitment.md" "$TMP/commitment/.opencode/agents/commitment.md"
 mkdir -p "$TMP/config" "$TMP/state"
 cat >"$TMP/config/opencode.json" <<'EOF'
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "ollama/devstral-small-2-32k",
+  "default_agent": "commitment",
   "enabled_providers": ["ollama"],
   "autoupdate": false,
   "share": "disabled",
@@ -62,9 +65,15 @@ printf '%s\n' commitment-fake-token >"$TMP/commitment-github-token"
 printf '%s\n' lab-fake-token >"$TMP/lab-github-token"
 
 podman run --http-proxy=false --rm --network=none \
+    -v "$TMP/commitment:/workspace/commitment:rw,Z" \
     -v "$TMP/config/opencode.json:/home/commitment/.config/opencode/opencode.json:ro,Z" \
-    "$IMAGE" opencode debug config | jq -e '.model == "ollama/devstral-small-2-32k" and .permission.question == "deny" and .permission.task == "deny" and .provider.ollama.models["devstral-small-2-32k"].limit.context == 32768 and .provider.ollama.models["devstral-small-2-32k"].limit.output == 8192' >/dev/null
-printf 'ok - OpenCode accepts the generated provider and permission configuration\n'
+    -w /workspace/commitment "$IMAGE" opencode debug config | jq -e '.model == "ollama/devstral-small-2-32k" and .default_agent == "commitment" and .permission.question == "deny" and .permission.task == "deny" and .provider.ollama.models["devstral-small-2-32k"].limit.context == 32768 and .provider.ollama.models["devstral-small-2-32k"].limit.output == 8192' >/dev/null
+podman run --http-proxy=false --rm --network=none \
+    -v "$TMP/commitment:/workspace/commitment:rw,Z" \
+    -v "$TMP/config/opencode.json:/home/commitment/.config/opencode/opencode.json:ro,Z" \
+    -w /workspace/commitment "$IMAGE" opencode debug agent commitment |
+    jq -e '.mode == "primary" and .name == "commitment"' >/dev/null
+printf 'ok - OpenCode accepts Commitment as the visible primary and default agent\n'
 
 podman create --http-proxy=false --name "$C1" \
     --add-host=host.containers.internal:host-gateway \
@@ -80,6 +89,7 @@ podman create --http-proxy=false --name "$C1" \
     -w /workspace/commitment "$IMAGE" sh -c '
         test -d /workspace/commitment/.git
         test -d /workspace/commitment-lab/.git
+        test -r /workspace/commitment/.opencode/agents/commitment.md
         test ! -e /run/podman/podman.sock
         test ! -e /home/commitment/.ssh
         test -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${COMMITMENT_GITHUB_TOKEN_FILE:-}${LAB_GITHUB_TOKEN_FILE:-}"

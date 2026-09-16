@@ -170,7 +170,8 @@ Set `COMMITMENT_GITHUB_TOKEN_FILE` and `LAB_GITHUB_TOKEN_FILE` independently; an
 
 ## Update or reinstall
 
-Review source changes, then explicitly rebuild and reinstall:
+Commitment may edit and commit trusted-runtime sources. Operator review followed
+by an explicit rebuild and reinstall activates those changes on the host:
 
 ```sh
 cd /path/to/commitment
@@ -178,7 +179,8 @@ git pull --ff-only
 ./install.sh
 ```
 
-This is the only path by which agent-authored launcher, image, publisher, prompt, or unit changes become trusted host machinery.
+This is the only activation path by which agent-authored launcher, image,
+publisher, prompt, or unit changes become trusted host machinery.
 
 ## Uninstall
 
@@ -234,8 +236,9 @@ Commitment-owned project. `commitment-secret` exposes availability, metadata,
 existence, trusted generation/rotation, and single-secret deletion; no plaintext
 retrieval or generic ingestion. The host machine token never enters the creative
 container, and operator-owned credentials remain separate. No Git repository,
-including a private one, is a secret store. Account creation also needs a safe
-credential consumer, which this pass does not implement. See
+including a private one, is a secret store. Persistent account creation requiring
+reusable credentials needs a safe credential consumer, which this pass does not
+implement. See
 [SECRETS.md](SECRETS.md) for
 installation, exact interface, and lifecycle. The host broker uses the official
 Python SDK in process; generated values never enter child-process arguments.

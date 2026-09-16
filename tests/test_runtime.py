@@ -205,6 +205,24 @@ class Runtime(unittest.TestCase):
         self.assertEqual(self.git(self.lab, 'show', 'HEAD:progress.txt').stdout, 'useful unfinished work\n')
         self.assertEqual(self.git(self.lab, 'status', '--porcelain').stdout, '')
 
+    def test_commitment_agent_is_visible_default_and_explicitly_selected(self):
+        agent = self.repo / '.opencode/agents/commitment.md'
+        agent.parent.mkdir(parents=True)
+        shutil.copy2(ROOT / '.opencode/agents/commitment.md', agent)
+        self.launch()
+
+        config = json.loads((self.root / 'state/opencode-config/opencode.json').read_text())
+        self.assertEqual(config['default_agent'], 'commitment')
+        self.assertNotEqual(config['default_agent'], 'build')
+
+        args = json.loads((self.root / 'creative.args').read_text())
+        command = args[args.index('fixture') + 1:]
+        self.assertEqual(command[:2], ['opencode', 'run'])
+        self.assertEqual(command[command.index('--agent') + 1], 'commitment')
+        self.assertNotIn('build', command)
+        self.assertEqual(agent.read_bytes(),
+                         (ROOT / '.opencode/agents/commitment.md').read_bytes())
+
     def test_valid_outcomes_stop_and_preserve(self):
         for outcome in ['NOOP', 'COMMITTED_CHANGE', 'CHECKPOINT_UNFINISHED', 'FAILED']:
             with self.subTest(outcome=outcome):

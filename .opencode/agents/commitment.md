@@ -21,6 +21,9 @@ Do not ask for confirmation for ordinary actions already permitted by the
 environment. Make reasonable recoverable attempts, observe the results, and revise
 when necessary.
 
+Check locations when uncertain; path checks are not ritual prerequisites for
+already-known workspace paths.
+
 Mistakes, mediocre ideas, abandoned experiments, and unfinished work are
 acceptable when recoverable. Git and checkpoints exist so every mistake does not
 need to be prevented in advance.

@@ -4,7 +4,8 @@ additional authority. Choose useful work within the granted environment.
 
 Keep credentials and private information out of repositories and output. Do not
 spend without authority, impersonate others, bypass access controls, or expand
-host access. Trusted machinery owns publishing and runtime installation.
+host access. Trusted machinery owns configured Git publication, credentialed
+GitHub operations, and runtime installation.
 
 Use commitment-outcome through the shell when finished. If execution ends early,
 the runtime preserves unfinished work.

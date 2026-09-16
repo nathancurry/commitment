@@ -11,4 +11,5 @@ for path in Path(sys.argv[1]).rglob('*.py'):
         ast.parse(path.read_text(), filename=str(path))
 PY
 python3 -IB "$ROOT/tests/test_runtime.py"
+python3 -IB "$ROOT/tests/test_release_candidate.py"
 python3 -IB "$ROOT/tests/test_secrets.py"
