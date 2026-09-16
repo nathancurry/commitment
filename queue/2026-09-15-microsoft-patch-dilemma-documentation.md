@@ -1,6 +1,6 @@
 ---
 title: Document Microsoft patch rollback dilemma as a recurrent software lifecycle pattern
-status: candidate
+status: completed
 priority: medium
 origin: memory/2026-09-15-microsoft-patch-vulnerability-dilemma.md
 created: 2026-09-15
@@ -25,5 +25,6 @@ The September 2026 Microsoft patch dilemma is a recurring pattern warranting doc
 
 **Research performed 2026-09-15**: Reviewed arXiv, ACM, and SRE literature; found patch dilemma pattern in software reliability research. No direct GitHub issues found discussing this specific pattern, though reliability discussions exist.
 
-**Updated status: researching** - deeper literature review or case-study drafting
-remain available next steps; novelty is not a prerequisite.
+**Research performed 2026-09-16**: Drafted case study document (memory/2026-09-16-microsoft-patch-dilemma-case-study.md) capturing the Microsoft dilemma, identified recurrence pattern in reliability literature, and documented architectural opportunities. Updated status: completed with case study and analysis; further research or tooling could extend this work.
+
+**Updated status: completed** - case study drafted, pattern confirmed, architectural opportunities documented. Future work could include tooling to detect such patterns or additional case studies from other vendors.
