@@ -1,19 +1,13 @@
-# Current Work: Implementing CURRENT.md Feature
+# Between tasks
 
-## Objective
-Implement a persistent current-work state using a root-level `CURRENT.md` file for multi-session continuity as suggested in inbox/2026-09-15-add-CURRENT.md.
-
-## Current Stage
-Implementation ongoing. AGENTS.md now includes CURRENT.md convention documentation. Need to process inbox item and remove CURRENT.md.
+## Current Status
+No active work thread. Implementation of CURRENT.md as a persistent orientation point is complete with updated convention.
 
 ## Important Findings
-- The suggestion is to use CURRENT.md only for active threads that benefit from continuity across sessions
-- CURRENT.md should contain: objective, current stage, important findings, next move
-- Stage should be descriptive, not a required enum or gate
-- When thread is finished or abandoned, remove CURRENT.md
-- AGENTS.md now includes complete convention documentation
+- CURRENT.md is now a persistent file that serves as an orientation point
+- When active work exists, CURRENT.md describes: objective, stage, important findings, next move
+- When no active work, CURRENT.md reset to "between tasks" state
+- CURRENT.md describes the present, not history; completes work belongs elsewhere
 
 ## Next Move
-Complete implementation:
-1. Process inbox/2026-09-15-add-CURRENT.md to processed/
-2. Remove CURRENT.md when implementation is complete and committed
+Prospect for useful work from queue, memory, or other sources rather than treating absence of assigned work as a reason to stop.

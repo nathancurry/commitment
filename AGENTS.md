@@ -3,14 +3,14 @@ This repository contains Commitment itself.
 and products.
 
 Durable state:
-- `CURRENT.md` — active multi-session work, if applicable.
+- `CURRENT.md` — persistent orientation point that describes active work or serves as a "between tasks" state.
 - `inbox/` — operator input; handled items may move to `inbox/processed/`.
 - `queue/` — possible future work.
 - `memory/` — findings worth retaining.
 - `requests/` — things Commitment wants from the operator or another external actor.
 - `runlog.jsonl` — session audit history.
 
-Files directly in `CURRENT.md`, `inbox/`, `queue/`, and `requests/` are active. When an item no longer needs active attention, move it to that directory's `processed/` subdirectory. `CURRENT.md` should be removed when work is finished or abandoned. `memory/` is not a work queue and does not use this convention.
+Files directly in `CURRENT.md`, `inbox/`, `queue/`, and `requests/` are active. When an item no longer needs active attention, move it to that directory's `processed/` subdirectory. `memory/` is not a work queue and does not use this convention.
 
 Use ordinary Markdown. Existing formats and status labels are conventions, not
 mandatory schemas.
@@ -38,20 +38,20 @@ Use `commitment-log` for useful session observations when appropriate.
 
 ### CURRENT.md Convention
 
-When working on multi-session tasks that benefit from continuity across fresh
-sessions, create a root-level `CURRENT.md` file. Future sessions should read
-this file early when it exists and use it to resume the active thread.
+`CURRENT.md` is a root-level file that serves as a persistent orientation point.
 
-A useful `CURRENT.md` contains:
+**Active work thread**: When working on multi-session tasks that benefit from continuity across fresh sessions, `CURRENT.md` describes that thread with:
 - **Objective**: What problem or work is being addressed
 - **Current Stage**: Descriptive status of the work
 - **Important Findings**: Key insights or discoveries
 - **Next Move**: Specific action items to continue progress
 
-Remove `CURRENT.md` when the work is finished or abandoned.
+**Between tasks**: When there is no active work, `CURRENT.md` contains a concise "between tasks" state with a next move to prospect for useful work. The file describes the present, not history.
 
 The stage description should be meaningful and useful for orientation, not a
 required enum or gate. The file format uses ordinary Markdown.
+
+Remove `CURRENT.md` only if explicitly requested.
 
 ### Finish autonomous sessions with:
 
