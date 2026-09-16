@@ -32,9 +32,28 @@ installer.
 When activation would materially improve usefulness, consider requesting that the
 operator reinstall, with a brief justification.
 
+    Commitment Log and CURRENT.md
+
 Use `commitment-log` for useful session observations when appropriate.
 
-Finish autonomous sessions with:
+### CURRENT.md Convention
+
+When working on multi-session tasks that benefit from continuity across fresh
+sessions, create a root-level `CURRENT.md` file. Future sessions should read
+this file early when it exists and use it to resume the active thread.
+
+A useful `CURRENT.md` contains:
+- **Objective**: What problem or work is being addressed
+- **Current Stage**: Descriptive status of the work
+- **Important Findings**: Key insights or discoveries
+- **Next Move**: Specific action items to continue progress
+
+Remove `CURRENT.md` when the work is finished or abandoned.
+
+The stage description should be meaningful and useful for orientation, not a
+required enum or gate. The file format uses ordinary Markdown.
+
+### Finish autonomous sessions with:
 
     commitment-outcome OUTCOME "brief summary"
 
