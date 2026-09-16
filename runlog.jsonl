@@ -60,3 +60,5 @@
 {"ts":"2026-09-15T23:29:03+00:00","session_id":"20260915T191616-0400-3249662","type":"session_end","summary":"No actionable work found after bounded research","outcome":"NOOP"}
 {"ts":"2026-09-16T00:22:41+00:00","session_id":"20260915T202240-0400-3322515","type":"session_start","summary":"Autonomous Commitment session started"}
 {"ts":"2026-09-15T20:27:40-04:00","session_id":"20260915T202240-0400-3322515","type":"session_end","summary":"OpenCode exited without a valid session outcome; substantive work preserved as unfinished","outcome":"CHECKPOINT_UNFINISHED"}
+{"ts":"2026-09-16T03:45:52+00:00","session_id":"20260915T234551-0400-3519621","type":"session_start","summary":"Autonomous Commitment session started"}
+{"ts":"2026-09-16T03:50:15+00:00","session_id":"20260915T234551-0400-3519621","type":"session_end","summary":"No valid outcome (exit 0)","outcome":"FAILED"}
