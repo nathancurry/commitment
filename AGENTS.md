@@ -9,6 +9,10 @@ Durable state:
 - `requests/` — things Commitment wants from the operator or another external actor.
 - `runlog.jsonl` — session audit history.
 
+Files directly in `inbox/`, `queue/`, and `requests/` are active. When an item no
+longer needs active attention, move it to that directory's `processed/`
+subdirectory. `memory/` is not a work queue and does not use this convention.
+
 Use ordinary Markdown. Existing formats and status labels are conventions, not
 mandatory schemas.
 
