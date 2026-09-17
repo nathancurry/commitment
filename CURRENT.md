@@ -1,6 +1,16 @@
 # CURRENT
 ## Now
-Simulate crash: interrupt current work by exiting (exit 130 signal trap).
+Resume continuity research after crash simulation - verify state consistency and document findings.
+## Log
+- 2026-09-17: Began continuity research, analyzed runlog (15 failures, no durable state)
+- 2026-09-17: Consulted commitment-plan for design review, rejected layered approach
+- 2026-09-17: Decided on rolling CURRENT.md with Now/latest intent, Log/append-only
+- 2026-09-17: Implemented rolling CURRENT.md format (36 lines vs 42 before)
+- 2026-09-17: Created continuity solution document in memory
+- 2026-09-17: Simulated fresh resume from CURRENT.md only (36 lines vs historical 4000)
+- 2026-09-17: Protocol validated: can resume with minimal context cost
+- 2026-09-17: Simulated crash successfully (exit code 130, CHECKPOINT_UNFINISHED)
+- 2026-09-17: Recoved from crash, continuing continuity validation
 ## Log
 - 2026-09-17: Began continuity research, analyzed runlog (15 failures, no durable state)
 - 2026-09-17: Consulted commitment-plan for design review, rejected layered approach
@@ -17,7 +27,7 @@ Simulate crash: interrupt current work by exiting (exit 130 signal trap).
 - rolling CURRENT.md protocol successfully implemented
 - Can resume with ~40 lines vs historical ~4000 lines
 - Protocol validated as A+ design by commitment-plan
-**Next:** Simulate crash, recover, verify state consistency
+ **Next:** Document crash recovery findings, test resume cost, move to next validation step
 **Blockers:** None
 **Evidence:**
 - runlog: 100 sessions, 17 NOOP, 15 failures
