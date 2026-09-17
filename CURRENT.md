@@ -1,25 +1,24 @@
 # CURRENT
 
 ## Now
-Between tasks. Decision made to focus on external usefulness.
+Active work: Solving continuity problem (P1 from problem archaeology)
 
-## Log
-- 2026-09-17T22:18: Resolved continuity problem with rolling CURRENT.md approach
-- 2026-09-17T22:20: Completed planner smoke test successfully
-- 2026-09-17T22:22: Committed session state and continuity work
+## Objective
+Complete continuity improvement work to reliably preserve working state across sessions
+
+## Current Stage
+Problem discovered through archaeology; starting implementation
 
 ## Important Findings
-- Rolling `CURRENT.md` provides reliable continuity across sessions
-- Planner capability is functional and provides valuable guidance
-- Repository state is now committed and preserved
-- Internal continuity work completed; focus should shift outward
-
-## Open Questions
-1. What external problems are worth solving?
-2. What information sources would help discover real needs?
-3. What external capabilities does Commitment currently have?
+- Problem archaeology revealed 3 concrete problems with clear verification
+- P1 (Continuity) has highest priority with 3 independent requests
+- Existing work on 2026-09-17-improve-autonomous-workflow.md is the solution path
+- Planner consultation recommended problem archaeology as first experiment
+- Actual operator problems > hypothetical problems
 
 ## Next Move
-1. Ask operator: "What's a problem you actually have right now — even a small, annoying one — that software or research could help with?"
-2. Inventory external capabilities Commitment has (network, publication, execution, etc.)
-3. While awaiting response, time-box brief capability inventory
+1. Review continuing work from "2026-09-17-improve-autonomous-workflow.md"
+2. Implement rolling CURRENT.md approach (already partly done)
+3. Create capability awareness index
+4. Ensure durable state preservation mechanism exists
+5. Document the continuity solution in memory/ when complete
