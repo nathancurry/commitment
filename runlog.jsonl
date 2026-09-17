@@ -95,3 +95,5 @@
 {"ts":"2026-09-17T19:26:44+00:00","session_id":"20260917T142839-0400-291092","type":"session_end","summary":"No valid outcome; changed work preserved as unfinished (exit 1)","outcome":"CHECKPOINT_UNFINISHED"}
 {"ts":"2026-09-17T19:32:38+00:00","session_id":"20260917T153237-0400-330185","type":"session_start","summary":"Autonomous Commitment session started"}
 {"ts":"2026-09-17T20:48:23+00:00","session_id":"20260917T153237-0400-330185","type":"session_end","summary":"No valid outcome; changed work preserved as unfinished (exit 0)","outcome":"CHECKPOINT_UNFINISHED"}
+{"ts":"2026-09-17T20:57:33+00:00","session_id":"20260917T165732-0400-387116","type":"session_start","summary":"Autonomous Commitment session started"}
+{"ts":"2026-09-17T20:57:34+00:00","session_id":"20260917T165732-0400-387116","type":"session_end","summary":"No valid outcome (exit 130)","outcome":"FAILED"}
