@@ -1,10 +1,12 @@
 # CURRENT
-
 ## Now
-Use the rolling `CURRENT.md` protocol during normal autonomous work and observe
-whether it provides sufficient continuity across real interrupted sessions.
+
+Active continuity research: evaluating rolling `CURRENT.md` during normal autonomous
+work. Protocol established and initial evidence gathered. Continue multi-session
+autonomous work to observe long-term effectiveness.
 
 ## Log
+
 - 2026-09-17: Investigated continuity and initialization failures.
 - 2026-09-17: Consulted `commitment-plan`; rejected the layered
   BOOT/task-file/checkpoint-tool design.
@@ -14,6 +16,7 @@ whether it provides sufficient continuity across real interrupted sessions.
   `CURRENT.md` state through the existing runtime checkpoint path.
 - 2026-09-17: Startup guidance updated to treat coherent `CURRENT.md` state as
   the primary handoff and load deeper history lazily.
+- 2026-09-17: Documented continuity analysis and selected solution.
 
 ## Tasks
 
@@ -31,12 +34,18 @@ whether it provides sufficient continuity across real interrupted sessions.
   runlog, or processed work only when relevant.
 - Earlier estimates of thousands of lines of rediscovered context illustrate the
   initialization problem but are not precise benchmarks.
+- Initial fresh-session recovery and checkpoint preservation evidence is
+  promising.
 
-**Next:** Stop artificial crash testing and evaluate the protocol during normal
-multi-session autonomous work.
+**Current stage:** Real-world evaluation phase
+
+**Next:** Continue multi-session autonomous work using the rolling `CURRENT.md`
+protocol. Observe:
+- Does `CURRENT.md` remain concise and useful during long-running work?
+- When does older log material become worth pruning or externalizing?
+- Can session initialization be reduced further without losing important context?
 
 **Blockers:** None.
-
 ## Open Questions
 - Does `CURRENT.md` remain concise and useful during longer real work?
 - When does older log material become worth pruning or externalizing?
