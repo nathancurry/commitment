@@ -27,3 +27,10 @@ From session-outcome-forensics.md:
 - runlog.jsonl is now informational only
 
 The opportunity is to improve outcome tracking while preserving the simplicity of the current approach.
+
+## Disposition
+
+Rejected as obsolete. The proposed semantic classification would reintroduce
+complexity deliberately removed in v0.4.0. Current preservation behavior is
+intentionally based on Git state rather than interpreting workspace semantics.
+
