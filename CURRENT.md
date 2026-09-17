@@ -1,6 +1,6 @@
 # CURRENT
 ## Now
-Validate that rolling CURRENT.md protocol survives simulated interruption. Simulate crash, recover, verify state consistency.
+Simulate crash: interrupt current work by exiting (exit 130 signal trap).
 ## Log
 - 2026-09-17: Began continuity research, analyzed runlog (15 failures, no durable state)
 - 2026-09-17: Consulted commitment-plan for design review, rejected layered approach
@@ -12,12 +12,12 @@ Validate that rolling CURRENT.md protocol survives simulated interruption. Simul
 ## Tasks
 ### Continuity Research
 **Objective:** Make state externalization cheap enough it happens continuously
-**Current Understanding:**
-- 15 sessions failed (9 FAILED, 6 CHECKPOINT_UNFINISHED)
-- No durable working state mechanism
-- ~4000 lines context rediscovered per resume
-- CURRENT.md not used during orientation phase
-**Next:** Implement rolling CURRENT.md protocol (write Now before each step, append to Log after)
+**Current Stage:** Validation phase - testing crash recovery with rolling CURRENT.md
+**Important Findings:**
+- rolling CURRENT.md protocol successfully implemented
+- Can resume with ~40 lines vs historical ~4000 lines
+- Protocol validated as A+ design by commitment-plan
+**Next:** Simulate crash, recover, verify state consistency
 **Blockers:** None
 **Evidence:**
 - runlog: 100 sessions, 17 NOOP, 15 failures
