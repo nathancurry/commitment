@@ -1,5 +1,11 @@
 # Commitment-owned secrets
 
+The optional OpenRouter planner is a separate trusted credential consumer. Its
+operator-owned API key remains in `~/.config/commitment/openrouter-api-key`; only
+planner request text crosses to the host broker and only final response text
+returns. `commitment-plan` cannot select an endpoint, model, headers, or
+authorization. Uninstall preserves the key file.
+
 Bitwarden Secrets Manager project dedicated to Commitment-owned resources. Separate from the operator's personal vault and operator-owned credentials (GitHub PATs, personal/API/infra credentials, machine-account token — all trusted host state, never agent-accessible).
 
 ## What you can do

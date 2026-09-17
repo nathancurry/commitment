@@ -38,6 +38,10 @@ The installer creates and preserves:
 Review that file and configure repository paths, upstream URLs, Ollama settings,
 publishing, schedule, and any optional capabilities.
 
+If configured, `commitment-plan` gives the creative container a text-only,
+stateless planning/prospecting call to a host-authenticated OpenRouter model. The
+API key stays in the owner-only host file named by `OPENROUTER_API_KEY_FILE`.
+
 Run manually:
 
 ```sh

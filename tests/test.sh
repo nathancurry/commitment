@@ -13,3 +13,4 @@ PY
 python3 -IB "$ROOT/tests/test_runtime.py"
 python3 -IB "$ROOT/tests/test_release_candidate.py"
 python3 -IB "$ROOT/tests/test_secrets.py"
+python3 -IB "$ROOT/tests/test_planner.py"

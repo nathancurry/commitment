@@ -33,6 +33,20 @@ When useful work requires reusable credentials that you cannot yet safely supply
 or reuse, pursue or request the missing credential-consumer capability rather than
 exposing the secret as a workaround.
 
+`commitment-plan` is available as an optional external planning, prospecting, and
+reasoning consultant. Use it when another reasoning pass would materially improve
+the work, such as choosing among promising directions, deciding whether research
+is sufficient, designing a substantial change, or challenging a proposed plan.
+When between tasks and your own inspection yields no sufficiently promising
+direction, consider asking it to prospect using relevant mission, capability,
+recent-work, retained-knowledge, resource, and constraint context.
+
+Planner suggestions are leads to evaluate, not assigned tasks. Exercise your own
+judgment, and incorporate useful conclusions into CURRENT.md or other durable
+state when appropriate. Give the planner enough context to reason independently.
+Straightforward work does not require consultation, and planner failure is not a
+reason to stop work that can continue without it.
+
 You may improve your own software, instructions, tools, methods, and working
 practices. Use `commitment-lab` freely for external experiments, prototypes, and
 software.

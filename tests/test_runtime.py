@@ -168,7 +168,8 @@ class Runtime(unittest.TestCase):
         runtime.mkdir(exist_ok=True)
         for name in ['run.sh', 'publish.sh', 'agent-git.sh', 'session-outcome.sh',
                      'commitment-log.sh', 'queue-context.sh', 'inbox-context.sh',
-                     'secret-broker.py', 'commitment-secret.py', 'prompt.txt']:
+                     'secret-broker.py', 'commitment-secret.py', 'planner-broker.py',
+                     'commitment-plan.py', 'prompt.txt']:
             shutil.copy2(ROOT / name, runtime / name)
         bin_dir = self.root / 'bin'
         bin_dir.mkdir(exist_ok=True)
@@ -182,7 +183,8 @@ class Runtime(unittest.TestCase):
                       OLLAMA_MODEL='fixture', OLLAMA_CONTEXT='32768', OLLAMA_OUTPUT='8192',
                       SESSION_TIMEOUT='10', PUBLISH_MODE='checkpoint', CONTAINER_IMAGE='fixture',
                       GIT_AUTHOR_NAME='Fixture', GIT_AUTHOR_EMAIL='fixture@example.invalid',
-                      BITWARDEN_SECRETS_ENABLED='false')
+                      BITWARDEN_SECRETS_ENABLED='false',
+                      OPENROUTER_API_KEY_FILE=str(self.root / 'operator/openrouter-api-key'))
         config.update(settings)
         (self.root / 'config.env').write_text(''.join(f'{k}={v}\n' for k, v in config.items()))
         self.launch_env = {**self.env, 'FIXTURE_ROOT': str(self.root),
@@ -191,6 +193,7 @@ class Runtime(unittest.TestCase):
                            'PATH': str(bin_dir) + ':' + os.environ['PATH']}
         # These are deliberately supplied to the HOST, never the creative arguments.
         self.launch_env['BWS_ACCESS_TOKEN'] = 'host-only-fixture'
+        self.launch_env['OPENROUTER_API_KEY'] = 'host-env-openrouter-fixture'
         return runtime / 'run.sh'
 
     def launch(self, mode='NOOP', check=True, **settings):
@@ -287,6 +290,54 @@ class Runtime(unittest.TestCase):
         self.assertIn('not logged', result.stderr)
         self.assert_saved()
 
+    def test_planner_key_and_controls_stay_outside_creative_surfaces(self):
+        operator = self.root / 'operator'
+        operator.mkdir()
+        key = operator / 'openrouter-api-key'
+        material = 'fixture-openrouter-key-material'
+        key.write_text(material + '\n')
+        key.chmod(0o600)
+        path = self.prepare_launcher(OPENROUTER_API_KEY_FILE=str(key))
+        result = self.call(path, env={**self.launch_env, 'FIXTURE_MODE': 'NOOP'})
+        args = json.loads((self.root / 'creative.args').read_text())
+        config = (self.root / 'state/opencode-config/opencode.json').read_text()
+        surfaces = result.stdout + result.stderr + json.dumps(args) + config
+        self.assertNotIn(material, surfaces)
+        self.assertNotIn(str(key), json.dumps(args))
+        self.assertNotIn('OPENROUTER_', json.dumps(args))
+        self.assertNotIn('openrouter', config.lower())
+        self.assertTrue(any('/usr/local/bin/commitment-plan:ro,Z' in arg for arg in args))
+        self.assertTrue(any('/run/commitment-planner:ro,Z' in arg for arg in args))
+        self.assertEqual(json.loads(config)['permission']['task'], 'deny')
+        self.assertEqual(list((self.root / 'state').glob('planner-session.*')), [])
+
+    def test_missing_planner_key_does_not_block_startup(self):
+        result = self.launch()
+        self.assertEqual(result.returncode, 0)
+        self.assert_saved()
+        args = json.loads((self.root / 'creative.args').read_text())
+        self.assertTrue(any('/run/commitment-planner:ro,Z' in arg for arg in args))
+
+    def test_existing_config_without_planner_fields_remains_compatible(self):
+        path = self.prepare_launcher()
+        config = self.root / 'config.env'
+        config.write_text(''.join(
+            line for line in config.read_text().splitlines(keepends=True)
+            if not line.startswith('OPENROUTER_')))
+        result = self.call(path, env={
+            **self.launch_env, 'FIXTURE_MODE': 'NOOP',
+            'XDG_CONFIG_HOME': str(self.root / 'old-config-home')})
+        self.assertEqual(result.returncode, 0)
+        self.assert_saved()
+
+    def test_planner_key_path_cannot_be_any_creative_mount_source(self):
+        path = self.prepare_launcher(OPENROUTER_API_KEY_FILE=str(
+            self.root / 'runtime/commitment-plan.py'))
+        result = self.call(path, env={**self.launch_env, 'FIXTURE_MODE': 'NOOP'}, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('outside all creative mounts', result.stderr)
+        self.assertFalse((self.root / 'ready').exists())
+
     def test_unavailable_backend_with_installed_sdk_is_optional(self):
         path = self.prepare_launcher(BITWARDEN_SECRETS_ENABLED='true',
                                      BITWARDEN_PROJECT_ID='11111111-1111-4111-8111-111111111111')
@@ -347,6 +398,11 @@ class Runtime(unittest.TestCase):
         env = {**self.launch_env, 'HOME': str(self.root / 'home'),
                'XDG_CONFIG_HOME': str(self.root / 'config'),
                'XDG_DATA_HOME': str(self.root / 'data'), 'COMMITMENT_SKIP_BUILD': '1'}
+        planner_key = self.root / 'config/commitment/openrouter-api-key'
+        planner_key.parent.mkdir(parents=True)
+        planner_key.write_text('operator-owned-fixture-key\n')
+        planner_key.chmod(0o600)
+        planner_key_before = planner_key.read_bytes()
         self.call(source / 'install.sh', env=env)
         installed = self.root / 'home/.local/libexec/commitment/run.sh'
         before = installed.read_bytes()
@@ -358,7 +414,10 @@ class Runtime(unittest.TestCase):
                          ['--user daemon-reload', '--user daemon-reload'])
         self.call(source / 'uninstall.sh', env=env)
         self.assertFalse(installed.exists())
+        self.assertFalse((installed.parent / 'planner-broker.py').exists())
+        self.assertFalse((installed.parent / 'commitment-plan.py').exists())
         self.assertTrue((self.root / 'config/commitment/config.env').exists())
+        self.assertEqual(planner_key.read_bytes(), planner_key_before)
 
     def test_repository_credentials_stay_in_trusted_publishing(self):
         self.launch()

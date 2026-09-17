@@ -31,7 +31,8 @@ for i, arg in enumerate(args):
     if arg == '-e':
         key, value = args[i+1].split('=', 1)
         passed[key] = value
-assert not any('TOKEN' in key or key.startswith('BITWARDEN_') for key in passed)
+assert not any('TOKEN' in key or key.startswith('BITWARDEN_') or
+               key.startswith('OPENROUTER_') for key in passed)
 assert not any('podman.sock' in target for target in mounts)
 command = args[args.index('fixture')+1:]
 

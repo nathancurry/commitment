@@ -25,6 +25,7 @@ for repo in commitment lab; do
         commit -q --allow-empty -m fixture
 done
 cp "$ROOT/run.sh" "$ROOT/inbox-context.sh" "$ROOT/queue-context.sh" "$ROOT/secret-broker.py" "$ROOT/commitment-secret.py" \
+    "$ROOT/planner-broker.py" "$ROOT/commitment-plan.py" \
     "$ROOT/prompt.txt" "$ROOT/session-outcome.sh" "$ROOT/commitment-log.sh" "$TMP/runtime/"
 cat >"$TMP/config.env" <<EOF
 COMMITMENT_REPO=$TMP/commitment
@@ -43,6 +44,7 @@ CONTAINER_IMAGE=$IMAGE
 GIT_AUTHOR_NAME=ProxyFixture
 GIT_AUTHOR_EMAIL=fixture@example.invalid
 BITWARDEN_SECRETS_ENABLED=false
+OPENROUTER_API_KEY_FILE=$TMP/operator/openrouter-api-key
 EOF
 cat >"$TMP/publisher" <<'EOF'
 #!/bin/sh
@@ -60,7 +62,8 @@ names = ('http_proxy', 'https_proxy', 'ftp_proxy', 'no_proxy')
 names += tuple(name.upper() for name in names)
 assert not any(name in os.environ for name in names), 'proxy variable inherited'
 assert not any('synthetic-' in value.lower() for value in os.environ.values()), 'proxy value inherited'
-assert not any(name.startswith('BITWARDEN_') or name == 'BWS_ACCESS_TOKEN' for name in os.environ)
+assert not any(name.startswith('BITWARDEN_') or name.startswith('OPENROUTER_') or
+               name == 'BWS_ACCESS_TOKEN' for name in os.environ)
 assert os.readlink('/proc/self/ns/pid') != os.environ['PROBE_HOST_PID_NAMESPACE']
 assert not os.path.exists('/run/podman/podman.sock')
 if sys.argv[1] == 'creative':

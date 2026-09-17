@@ -15,14 +15,21 @@ OUTCOME_HELPER=${COMMITMENT_OUTCOME_HELPER:-"$RUNTIME_DIR/session-outcome.sh"}
 LOG_HELPER=${COMMITMENT_LOG_HELPER:-"$RUNTIME_DIR/commitment-log.sh"}
 INBOX_CONTEXT_HELPER="$RUNTIME_DIR/inbox-context.sh"
 QUEUE_CONTEXT_HELPER="$RUNTIME_DIR/queue-context.sh"
+PLANNER_BROKER="$RUNTIME_DIR/planner-broker.py"
 
 [[ -r "$CONFIG_FILE" ]] || die "configuration not found: $CONFIG_FILE"
 # shellcheck source=/dev/null
 source "$CONFIG_FILE"
 # The machine token is read only by the dedicated host broker from its file.
 unset BWS_ACCESS_TOKEN
+# The OpenRouter key is read only from its file by the dedicated host broker.
+unset OPENROUTER_API_KEY
 BITWARDEN_SECRETS_ENABLED=${BITWARDEN_SECRETS_ENABLED:-false}
 [[ $BITWARDEN_SECRETS_ENABLED == true || $BITWARDEN_SECRETS_ENABLED == false ]] || die "BITWARDEN_SECRETS_ENABLED must be true or false"
+OPENROUTER_API_KEY_FILE=${OPENROUTER_API_KEY_FILE:-$CONFIG_HOME/commitment/openrouter-api-key}
+OPENROUTER_PLANNER_MODEL=${OPENROUTER_PLANNER_MODEL:-z-ai/glm-5.3}
+OPENROUTER_PLANNER_REASONING=${OPENROUTER_PLANNER_REASONING:-high}
+OPENROUTER_PLANNER_MAX_TOKENS=${OPENROUTER_PLANNER_MAX_TOKENS:-16384}
 
 for name in COMMITMENT_REPO COMMITMENT_BRANCH COMMITMENT_UPSTREAM_URL LAB_REPO LAB_BRANCH LAB_UPSTREAM_URL OLLAMA_ENDPOINT OLLAMA_MODEL OLLAMA_CONTEXT OLLAMA_OUTPUT SESSION_TIMEOUT PUBLISH_MODE CONTAINER_IMAGE GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL; do
     [[ -n ${!name:-} ]] || die "$name is required in $CONFIG_FILE"
@@ -51,6 +58,11 @@ if [[ -f $RUNTIME_DIR/secret-broker.py ]]; then
         BITWARDEN_SECRETS_ENABLED=false
     fi
 fi
+if [[ -f $PLANNER_BROKER ]]; then
+    if ! python3 -I "$PLANNER_BROKER" --cleanup "$STATE_DIR"; then
+        note "planner cleanup unavailable; continuing"
+    fi
+fi
 exec 9>"$STATE_DIR/run.lock"
 flock -n 9 || die "another run is active"
 COMMITMENT_SESSION_ID="$(date +'%Y%m%dT%H%M%S%z')-$$"
@@ -67,6 +79,16 @@ for mount in "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-config" "$STATE
     mount_path=$(readlink -m -- "$mount")
     case $secret_token_path in
         "$mount_path"|"$mount_path"/*) die "Bitwarden token path must stay outside all creative mounts" ;;
+    esac
+done
+planner_key_path=$(readlink -m -- "$OPENROUTER_API_KEY_FILE")
+for mount in "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-config" \
+        "$STATE_DIR/opencode-data" "$STATE_DIR/outcomes" "$OUTCOME_HELPER" \
+        "$LOG_HELPER" "$RUNTIME_DIR/commitment-secret.py" \
+        "$RUNTIME_DIR/commitment-plan.py"; do
+    mount_path=$(readlink -m -- "$mount")
+    case $planner_key_path in
+        "$mount_path"|"$mount_path"/*) die "OpenRouter key path must stay outside all creative mounts" ;;
     esac
 done
 
@@ -158,6 +180,8 @@ container_name="commitment-session-$$"
 secret_args=()
 secret_pid=''
 secret_directory=''
+planner_pid=''
+planner_directory=''
 cleanup_secrets() {
     if [[ -n $secret_pid ]]; then
         kill -TERM "$secret_pid" 2>/dev/null || true
@@ -177,12 +201,30 @@ cleanup_secrets() {
         secret_directory=''
     fi
 }
+cleanup_planner() {
+    if [[ -n $planner_pid ]]; then
+        kill -TERM "$planner_pid" 2>/dev/null || true
+        for (( planner_wait=0; planner_wait<30; planner_wait++ )); do
+            kill -0 "$planner_pid" 2>/dev/null || break
+            sleep 0.1
+        done
+        kill -KILL "$planner_pid" 2>/dev/null || true
+        wait "$planner_pid" 2>/dev/null || true
+        planner_pid=''
+    fi
+    if [[ -n $planner_directory ]]; then
+        rm -f -- "$planner_directory/request" "$planner_directory/response" "$planner_directory/lock"
+        rmdir -- "$planner_directory" 2>/dev/null || true
+        planner_directory=''
+    fi
+}
 mkdir -p -m 700 "$STATE_DIR/outcomes"
 outcome_directory=$(mktemp -d "$STATE_DIR/outcomes/session.XXXXXX")
 export COMMITMENT_OUTCOME_FILE="$outcome_directory/outcome"
 export COMMITMENT_SESSION_ID
 cleanup() {
     cleanup_secrets
+    cleanup_planner
     rm -f -- "$outcome_directory/outcome"
     rmdir -- "$outcome_directory" 2>/dev/null || true
 }
@@ -225,6 +267,34 @@ if [[ $BITWARDEN_SECRETS_ENABLED == true && $interrupted == 0 ]]; then
         note "secret SDK or helpers unavailable; continuing without secret access"
     fi
 fi
+planner_args=()
+if [[ -x $RUNTIME_DIR/commitment-plan.py ]]; then
+    planner_args=(-v "$RUNTIME_DIR/commitment-plan.py:/usr/local/bin/commitment-plan:ro,Z")
+fi
+if [[ -f $PLANNER_BROKER && -x $RUNTIME_DIR/commitment-plan.py && $interrupted == 0 ]]; then
+    planner_directory=$(mktemp -d "$STATE_DIR/planner-session.XXXXXX")
+    OPENROUTER_API_KEY_FILE="$OPENROUTER_API_KEY_FILE" \
+        OPENROUTER_PLANNER_MODEL="$OPENROUTER_PLANNER_MODEL" \
+        OPENROUTER_PLANNER_REASONING="$OPENROUTER_PLANNER_REASONING" \
+        OPENROUTER_PLANNER_MAX_TOKENS="$OPENROUTER_PLANNER_MAX_TOKENS" \
+        python3 -IB "$PLANNER_BROKER" "$planner_directory" "$$" \
+        "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-config" \
+        "$STATE_DIR/opencode-data" "$outcome_directory" "$OUTCOME_HELPER" \
+        "$LOG_HELPER" "$RUNTIME_DIR/commitment-secret.py" \
+        "$RUNTIME_DIR/commitment-plan.py" &
+    planner_pid=$!
+    for (( attempt=0; attempt<300; attempt++ )); do
+        [[ -f "$planner_directory/lock" || $interrupted != 0 ]] && break
+        kill -0 "$planner_pid" 2>/dev/null || break
+        sleep 0.1
+    done
+    if [[ -f $planner_directory/lock ]]; then
+        planner_args+=(-v "$planner_directory:/run/commitment-planner:ro,Z")
+    else
+        note "planner broker unavailable; continuing without external planning"
+        cleanup_planner
+    fi
+fi
 log_args=()
 [[ ! -x $LOG_HELPER ]] || log_args=(-v "$LOG_HELPER:/usr/local/bin/commitment-log:ro,Z")
 container_args=(run --http-proxy=false --rm --name "$container_name"
@@ -241,6 +311,7 @@ container_args=(run --http-proxy=false --rm --name "$container_name"
     -v "$outcome_directory:/run/commitment-outcome:rw,Z"
     "${log_args[@]}"
     "${secret_args[@]}"
+    "${planner_args[@]}"
     -w /workspace/commitment
     -e HOME=/home/commitment
     -e XDG_CONFIG_HOME=/home/commitment/.config
@@ -277,6 +348,7 @@ fi
 trap '' TERM INT
 podman rm -f "$container_name" >/dev/null || die "cannot stop creative container; work remains on disk"
 cleanup_secrets
+cleanup_planner
 (( interrupted == 0 )) || agent_status=$interrupted
 touch "$STATE_DIR/session-started"
 

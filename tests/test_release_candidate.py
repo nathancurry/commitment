@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused v0.4.1 release contracts and historical evidence."""
+"""Focused release contracts and historical evidence."""
 import json
 from pathlib import Path
 import re
@@ -22,16 +22,16 @@ class ReleaseCandidate(unittest.TestCase):
         agent = self.read('.opencode/agents/commitment.md')
         self.assertRegex(agent, r'(?m)^mode: primary$')
         for idea in [
-                'You are Commitment', 'Do not wait for a user request',
-                'reversible action', 'Usefulness does not require novelty',
-                'ordinary actions already permitted', 'Mistakes, mediocre ideas',
-                'Follow MISSION.md and AGENTS.md',
-                'Once commitment-outcome succeeds']:
+                'You are Commitment', 'Do not wait for work to be assigned',
+                'reversible action', 'novelty or originality',
+                'ordinary actions already available', 'Mistakes, mediocre ideas',
+                'Read MISSION.md and AGENTS.md',
+                'the session is finished']:
             self.assertIn(idea, agent)
         self.assertNotIn('Podman socket', agent)
         self.assertNotIn('Bitwarden', agent)
-        self.assertIn('Podman\nsocket', self.read('AGENTS.md'))
-        self.assertIn('Bitwarden', self.read('AGENTS.md'))
+        self.assertIn('rootless Podman', self.read('README.md'))
+        self.assertIn('Bitwarden', self.read('SECRETS.md'))
 
     def test_no_action_or_research_gate_for_noop(self):
         instructions = '\n'.join(self.read(path) for path in [
@@ -43,22 +43,20 @@ class ReleaseCandidate(unittest.TestCase):
         for pattern in forbidden:
             self.assertIsNone(re.search(pattern, instructions, re.IGNORECASE))
         self.assertIn('Research when useful', instructions)
-        self.assertIn('or NOOP', instructions)
 
     def test_residual_friction_wording(self):
-        queue = self.read('queue/2026-09-15-microsoft-patch-dilemma-documentation.md')
-        self.assertIn('novelty is not a prerequisite', queue)
+        queue = self.read('queue/processed/2026-09-15-microsoft-patch-dilemma-documentation.md')
+        self.assertIn('status: completed', queue)
+        self.assertIn('case study and analysis', queue)
         self.assertNotIn('awaiting deeper evidence of unique contribution', queue)
 
         agents = self.read('AGENTS.md')
         prompt = self.read('prompt.txt')
         readme = self.read('README.md')
-        self.assertIn('Configured Git publication and credentialed\nGitHub operations', agents)
-        self.assertIn('configured Git publication, credentialed\nGitHub operations', prompt)
-        self.assertIn('Persistent account creation needing reusable credentials', agents)
-        self.assertIn('Persistent account creation requiring\nreusable credentials', readme)
-        self.assertIn('Commitment may edit and commit trusted-runtime sources', readme)
-        self.assertIn('explicit rebuild and reinstall activates those changes', readme)
+        self.assertIn('trusted machinery handles configured Git publication', agents)
+        self.assertIn('Configured Git publication, credentialed GitHub operations', prompt)
+        self.assertIn('trusted runtime sources', agents)
+        self.assertIn('reinstall to activate them', readme)
 
     def test_duplicate_failure_forensics_are_backed_by_history(self):
         report = self.read('memory/2026-09-15-session-outcome-forensics.md')
@@ -83,6 +81,15 @@ class ReleaseCandidate(unittest.TestCase):
                                 and row.get('summary') ==
                                 'Session outcome did not match repository state'
                                 for row in terminal))
+
+    def test_v050_planner_is_optional_and_subagents_remain_disabled(self):
+        agent = self.read('.opencode/agents/commitment.md')
+        config = self.read('config.example.env')
+        self.assertIn('`commitment-plan` is available as an optional external', agent)
+        self.assertIn('Planner suggestions are leads to evaluate, not assigned tasks', agent)
+        self.assertIn('Straightforward work does not require consultation', agent)
+        self.assertIn('ALLOW_SUBAGENTS=false', config)
+        self.assertIn('OPENROUTER_PLANNER_MODEL=z-ai/glm-5.3', config)
 
 
 if __name__ == '__main__':

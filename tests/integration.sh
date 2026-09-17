@@ -143,4 +143,5 @@ printf 'ok - intended mounts only, no credential/socket, both workspaces writabl
 
 COMMITMENT_TEST_IMAGE="$IMAGE" "$ROOT/tests/git-boundary.sh"
 COMMITMENT_TEST_IMAGE="$IMAGE" "$ROOT/tests/secrets-container.sh"
+COMMITMENT_TEST_IMAGE="$IMAGE" "$ROOT/tests/planner-container.sh"
 COMMITMENT_TEST_IMAGE="$IMAGE" bash "$ROOT/tests/proxy-environment.sh"

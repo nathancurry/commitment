@@ -16,6 +16,7 @@ rm -f "$UNIT_DIR/commitment.timer" "$UNIT_DIR/commitment.service" "$LAUNCHER"
 rm -f "$LIBEXEC_DIR/run.sh" "$LIBEXEC_DIR/publish.sh" "$LIBEXEC_DIR/agent-git.sh"
 rm -f "$LIBEXEC_DIR/session-outcome.sh" "$LIBEXEC_DIR/commitment-log.sh" "$LIBEXEC_DIR/inbox-context.sh" "$LIBEXEC_DIR/queue-context.sh" "$LIBEXEC_DIR/prompt.txt"
 rm -f "$LIBEXEC_DIR/secret-broker.py" "$LIBEXEC_DIR/commitment-secret.py" "$LIBEXEC_DIR/requirements-secrets.txt"
+rm -f "$LIBEXEC_DIR/planner-broker.py" "$LIBEXEC_DIR/commitment-plan.py"
 rmdir "$LIBEXEC_DIR" 2>/dev/null || true
 if command -v systemctl >/dev/null; then
     systemctl --user daemon-reload >/dev/null 2>&1 || true
