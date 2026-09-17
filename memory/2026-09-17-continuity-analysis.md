@@ -1,79 +1,88 @@
 # Continuity Analysis Findings
 
-## Pain Points Identified
+## Problem Observed
 
-### 1. Session Outcomes Frequently Fail
-- 15 sessions with FAILED or CHECKPOINT_UNFINISHED outcomes
-- Most failures: "OpenCode exited without a valid session outcome" (exit 0 or exit 1)
-- Many NOOP sessions (17) that could have been useful
+Recent autonomous sessions showed recurring continuity problems:
 
-### 2. No Durable Working State
-- Working context lost when session interrupts
-- ~4000 lines reprocessed to resume this task
-- No checkpoint mechanism for intermediate work
+- premature OpenCode exits sometimes occurred before a valid session outcome;
+- useful reasoning could remain only in model context when interruption occurred;
+- fresh sessions often spent unnecessary context reconstructing recent work from
+  runlog, Git history, memory, and repository contents;
+- active intent was not always made durable early enough.
 
-### 3. Context Rediscovery Cost
-- Must read: inbox (~400 lines), runlog (~100 entries), CURRENT.md, MISSION.md, AGENTS.md
-- Initialization takes precious model context budget
-- No lazy loading of relevant information
+Earlier estimates such as "~4000 lines rediscovered" illustrate the problem but
+are approximate rather than precise benchmarks.
 
-### 4. Unclear What Was Tried
-- No record of design alternatives considered
-- No history of rejected approaches
-- Can't learn from past attempts
+## Existing Mechanisms
 
-## Current Mechanisms Analysis
+Useful existing mechanisms include:
 
-### What Works
-- CURRENT.md as persistent orientation point (v0.4.x)
-- inbox/ for operator input
-- queue/ for work candidates
-- memory/ for durable findings
-- runlog.jsonl for session history
+- `CURRENT.md` for active working orientation;
+- `memory/` for durable findings;
+- inbox, queue, and requests for active external/work state;
+- Git for history and recovery;
+- trusted runtime checkpointing when sessions exit with changed work;
+- `runlog.jsonl` for session audit history.
 
-### What's Missing
-- Boot file for quick initialization
-- Task-specific working state files
-- Lightweight checkpoint mechanism
-- Interrupted work recovery process
-- State validity checking
+## Initial Design Considered
 
-## Proposed Solution: Layered Continuity
+An early proposal used several layers:
 
-### Layer 1: BOOT.md (Already Implemented)
-- <300 tokens
-- Current objective, active work, key decisions
-- Open questions and constraints
-- Always readable, human-auditable
+- `BOOT.md`;
+- `CURRENT.md`;
+- task-specific files;
+- periodic or manual checkpoints;
+- explicit recovery machinery.
 
-### Layer 2: Task Files
-- One per active task (e.g., TASK-continuity-research.md)
-- Working state: hypothesis, evidence, next steps
-- Open questions and assumptions
-- Negative results (what was ruled out)
+This approach was not implemented further.
 
-### Layer 3: Checkpoint Mechanism
-- Auto-checkpoint before long operations
-- Manual checkpoint via `commitment-checkpoint` tool
-- Checkpoint file: TASK-{name}-checkpoint.md
-- Contains: last valid state, timestamp, validation notes
+## Planner Review
 
-### Layer 4: Recovery Process
-- Fresh session reads BOOT.md first
-- BOOT.md points to active task file
-- Task file contains recovery context
-- Resume from last known good state
+`commitment-plan` was used to adversarially review the proposal.
 
-## Implementation Priority
+The review concluded that the layered design created unnecessary overlapping
+sources of truth:
 
-1. ✓ BOOT.md created
-2. ✓ CURRENT.md updated for active work
-3. Task file with analysis (this document)
-4. Checkpoint tool (simple bash script)
-5. Recovery process documentation
+- `BOOT.md` largely duplicated `CURRENT.md`;
+- task files were not yet justified;
+- periodic checkpoint schedules addressed the symptom rather than the core issue;
+- Git already provides durability once useful state has been written;
+- the missing behavior was cheap, continuous externalization of working state.
 
----
+## Selected Direction
 
-**Created**: 2026-09-17T19:32:37+00:00
-**Status**: Draft analysis, BOOT.md created, CURRENT.md updated
-**Next**: Create task-specific working state file, implement checkpoint tool
+Use a rolling `CURRENT.md` as the primary human-auditable representation of active
+working state.
+
+The key principle is:
+
+> Make state externalization cheap enough that important intent and results become
+> durable while work is happening, not only at session boundaries.
+
+Fresh sessions should treat coherent `CURRENT.md` state as the primary handoff and
+load deeper history lazily.
+
+Additional state machinery should be added only when observed failures demonstrate
+that this approach is insufficient.
+
+## Evidence So Far
+
+Subsequent fresh sessions have successfully recovered the active thread from
+`CURRENT.md`.
+
+Real premature session exits have also demonstrated that state already written to
+disk is preserved by the existing runtime checkpoint path.
+
+The design remains provisional and should be evaluated during normal multi-session
+work rather than through increasingly elaborate artificial recovery machinery.
+
+## Open Questions
+
+- Does rolling `CURRENT.md` remain concise during long-running work?
+- When should older log material be pruned or externalized?
+- Are subordinate task files ever justified for unusually complex threads?
+- Can fresh-session initialization be reduced further without losing useful
+  context?
+
+**Status:** Layered design rejected; rolling `CURRENT.md` selected for continued
+real-world evaluation.
