@@ -4,6 +4,25 @@
 > important conclusions should become durable before an input is retired or before
 > relying on end-of-session cleanup.
 
+> Before implementing additional continuity machinery, use `commitment-plan` to
+> adversarially review the proposed design.
+>
+> In particular, evaluate:
+>
+> - whether `BOOT.md` duplicates `CURRENT.md`;
+> - whether separate task files and CHECKPOINT.md create unnecessary sources of
+>   truth;
+> - whether periodic 15-minute checkpoints or 24/48-hour stale thresholds are
+>   supported by observed failures;
+> - whether the existing Git checkpoint/recovery mechanism already solves part of
+>   the persistence problem;
+> - whether a much smaller design could achieve fast initialization and reliable
+>   interruption recovery.
+>
+> Prefer fewer authoritative representations. Do not implement a checkpoint tool
+> or automatic checkpoint schedule until the planner review shows that simpler
+> mechanisms are insufficient.
+
 # Research and improve autonomous continuity, initialization, working state, and information encoding
 
 Evaluate how Commitment maintains continuity across autonomous runs and improve the

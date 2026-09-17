@@ -50,6 +50,18 @@ or:
 stdout. It does not take the request as a positional argument or `--input`
 option.
 
+For broad, ambiguous, architectural, or self-modifying work, consider consulting
+the planner early. First gather enough context to state the problem and important
+constraints clearly, then use `commitment-plan` before investing heavily in a
+particular analysis or design.
+
+The planner can help define the problem, identify missing evidence, suggest
+alternatives, and prevent premature commitment to a locally plausible solution.
+Gather additional facts afterward when needed and consult again if another
+reasoning pass would materially improve the decision.
+
+Do not delay planner consultation merely to complete your own full analysis first.
+
 Use it when another reasoning pass would materially improve the work, such as
 choosing among promising directions, deciding whether research is sufficient,
 designing a substantial change, or challenging a proposed plan.
