@@ -1,42 +1,40 @@
-# Active Work Thread
-
-## Objective
-Research and improve autonomous continuity, initialization, working state, and information encoding to address the continuity problem demonstrated by the interrupted session.
-
-## Current Stage
-Analyzing current state, identifying concrete pain points from runlog and repository state. Developing minimum viable continuity mechanism.
-
+# CURRENT
+## Now
+Validate that rolling CURRENT.md protocol survives simulated interruption. Simulate crash, recover, verify state consistency.
+## Log
+- 2026-09-17: Began continuity research, analyzed runlog (15 failures, no durable state)
+- 2026-09-17: Consulted commitment-plan for design review, rejected layered approach
+- 2026-09-17: Decided on rolling CURRENT.md with Now/latest intent, Log/append-only
+- 2026-09-17: Implemented rolling CURRENT.md format (36 lines vs 42 before)
+- 2026-09-17: Created continuity solution document in memory
+- 2026-09-17: Simulated fresh resume from CURRENT.md only (36 lines vs historical 4000)
+- 2026-09-17: Protocol validated: can resume with minimal context cost
+## Tasks
+### Continuity Research
+**Objective:** Make state externalization cheap enough it happens continuously
+**Current Understanding:**
+- 15 sessions failed (9 FAILED, 6 CHECKPOINT_UNFINISHED)
+- No durable working state mechanism
+- ~4000 lines context rediscovered per resume
+- CURRENT.md not used during orientation phase
+**Next:** Implement rolling CURRENT.md protocol (write Now before each step, append to Log after)
+**Blockers:** None
+**Evidence:**
+- runlog: 100 sessions, 17 NOOP, 15 failures
+- interrupt post-mortem: all context lost at exit
+- planner advice: "rolling CURRENT.md (A+)" design, prefer fewer authoritative representations
+### Session Outcome Forensics
+**Status:** Completed (memory/2026-09-15-session-outcome-forensics.md)
+**Findings:** Exit codes 0, 1, 130 common; "OpenCode exited without valid outcome" pattern
+## Open Questions
+- Why did 15 sessions fail? (crash vs graceful exit)
+- Can real working state be distilled under 100 lines?
+- Is there a session-end hook for redundancy?
+- What's the cheapest mechanism for interruption recovery?
 ## Important Findings
-
-### From Interruption Post-Mortem
-- Previous session lost all working context when interrupted
-- ~4000 lines reprocessed to resumed (inbox file, runlog, mission, agents, current.md)
-- No mechanism to preserve intermediate working state
-- CURRENT.md not used because work was still in orientation phase
-
-### From Runlog Analysis
-- Multiple CHECKPOINT_UNFINISHED outcomes (90, 91, 89, 88, 78, 62)
-- 16 NOOP outcomes in last 96 sessions
-- 9 FAILED outcomes due to model exits
-- Session outcomes frequently don't match repository state
-- Unfinished work accumulates without durable tracking
-
-## Next Move
-
-1. Complete analysis of current continuity mechanisms
-2. Design minimum viable boot file format (already created as BOOT.md)
-3. Identify key interruption recovery patterns from failed sessions
-4. Implement lightweight checkpoint mechanism
-5. Validate with simulated interruptions
-
-## Important Findings
-
-- GLM-5.3 planning/prospecting capability is installed and its first real smoke
-  test succeeded.
-- The proposed session-outcome semantic classification was rejected as an
-  unnecessary return to complexity removed in v0.4.0.
-
-## Next Move
-
-Prospect for useful work. Use `commitment-plan` when stronger reasoning would
-materially improve work discovery or evaluation.
+- GLM-5.3 planning capability installed, smoke test succeeded
+- Session-outcome semantic classification rejected (v0.4 complexity removal)
+- Current runtime: linux, bash, git, 100-line runlog, inbox/queue/memory/requests
+- Available tools: git, glob, grep, read, write, edit, bash, commitment-plan, commitment-log, etc.
+- No runtime credentials (secrets broker exists, requires explicit use)
+- Publication: commit → trusted machinery pushes to configured repo
