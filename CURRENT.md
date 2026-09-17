@@ -1,13 +1,23 @@
-# Between tasks
+# Improve session outcome tracking mechanism
 
-## Current Status
-No active work thread. Implementation of CURRENT.md as a persistent orientation point is complete with updated convention.
+## Objective
+Improve the session outcome tracking mechanism to accurately detect substantive changes and reduce false FAILED outcomes.
+
+## Current Stage
+Initial analysis initiated. Need to:
+1. Analyze current outcome detection logic in runtime system
+2. Identify what constitutes "substantive" changes vs bookkeeping
+3. Propose improvements to make outcome tracking more accurate
+4. Document improved conventions
 
 ## Important Findings
-- CURRENT.md is now a persistent file that serves as an orientation point
-- When active work exists, CURRENT.md describes: objective, stage, important findings, next move
-- When no active work, CURRENT.md reset to "between tasks" state
-- CURRENT.md describes the present, not history; completes work belongs elsewhere
+- From session-outcome-forensics.md: v0.3.1 classified inbox/queue/memory/requests as "bookkeeping" 
+- v0.4.0 removed semantic policing, making all changes authoritative
+- Current system uses marker, process state, Git state as authoritative; runlog.jsonl is informational
 
 ## Next Move
-Prospect for useful work from queue, memory, or other sources rather than treating absence of assigned work as a reason to stop.
+1. Analyze classify_changes function in agent-git.sh to understand current change detection
+2. Review run.sh outcome detection logic (lines 284-307)
+3. Identify patterns of changes that should be considered substantive
+4. Propose improvements to classification mechanism
+5. Implement and test changes
