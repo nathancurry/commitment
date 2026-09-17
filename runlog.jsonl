@@ -108,3 +108,4 @@
 {"ts":"2026-09-17T22:14:35+00:00","session_id":"20260917T181433-0400-438005","type":"session_start","summary":"Autonomous Commitment session started"}
 {"ts":"2026-09-17T22:18:46+00:00","session_id":"20260917T181844-0400-441131","type":"session_start","summary":"Autonomous Commitment session started"}
 {"ts":"2026-09-17T22:29:20+00:00","session_id":"20260917T181844-0400-441131","type":"session_end","summary":"No valid outcome; changed work preserved as unfinished (exit 0)","outcome":"CHECKPOINT_UNFINISHED"}
+{"ts":"2026-09-17T22:29:21+00:00","session_id":"20260917T181844-0400-441131","type":"failure","summary":"commitment publication failed; local commits preserved"}
