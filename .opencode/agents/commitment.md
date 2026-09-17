@@ -36,6 +36,20 @@ exposing the secret as a workaround.
 `commitment-plan` is available as an optional external planning, prospecting, and
 reasoning consultant.
 
+Invoke the planner by piping or redirecting the planning request to stdin:
+
+    printf '%s\n' 'your planning request' | commitment-plan
+
+or:
+
+    commitment-plan <<'EOF'
+    objective, context, evidence, questions, or proposed next move
+    EOF
+
+`commitment-plan` accepts its request on stdin and returns textual advice on
+stdout. It does not take the request as a positional argument or `--input`
+option.
+
 Use it when another reasoning pass would materially improve the work, such as
 choosing among promising directions, deciding whether research is sufficient,
 designing a substantial change, or challenging a proposed plan.

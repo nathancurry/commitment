@@ -1,3 +1,9 @@
+> Previous attempt was interrupted after this item was moved to `processed/`
+> but before the analysis and durable working state were written. Treat this task
+> as unfinished. This failure is itself evidence for the continuity problem:
+> important conclusions should become durable before an input is retired or before
+> relying on end-of-session cleanup.
+
 # Research and improve autonomous continuity, initialization, working state, and information encoding
 
 Evaluate how Commitment maintains continuity across autonomous runs and improve the
