@@ -1,7 +1,8 @@
 # Commitment-owned secrets
 
-The optional OpenRouter planner is a separate trusted credential consumer. Its
-operator-owned API key remains in `~/.config/commitment/openrouter-api-key`; only
+The optional CheaperInference planner is a separate trusted credential consumer.
+Its operator-owned API key remains in
+`~/.config/commitment/cheaperinference-api-key`; only
 planner request text crosses to the host broker and only final response text
 returns. `commitment-plan` cannot select an endpoint, model, headers, or
 authorization. Uninstall preserves the key file.

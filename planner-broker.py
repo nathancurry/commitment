@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Host-only OpenRouter planner broker with a text-only FIFO interface."""
+"""Host-only CheaperInference planner broker with a text-only FIFO interface."""
 
 import fcntl
 import json
@@ -15,8 +15,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "z-ai/glm-5.3"
+ENDPOINT = "https://api.cheaperinference.com/v1/chat/completions"
+DEFAULT_MODEL = "glm-5.3"
 DEFAULT_REASONING = "high"
 DEFAULT_MAX_TOKENS = 16384
 REQUEST_LIMIT = 1024 * 1024
@@ -388,10 +388,10 @@ def main():
     backend, error = None, None
     try:
         backend = Backend(
-            os.environ.get("OPENROUTER_API_KEY_FILE", ""),
-            os.environ.get("OPENROUTER_PLANNER_MODEL", DEFAULT_MODEL),
-            os.environ.get("OPENROUTER_PLANNER_REASONING", DEFAULT_REASONING),
-            int(os.environ.get("OPENROUTER_PLANNER_MAX_TOKENS", DEFAULT_MAX_TOKENS)),
+            os.environ.get("CHEAPERINFERENCE_API_KEY_FILE", ""),
+            os.environ.get("PLANNER_MODEL", DEFAULT_MODEL),
+            os.environ.get("PLANNER_REASONING", DEFAULT_REASONING),
+            int(os.environ.get("PLANNER_MAX_TOKENS", DEFAULT_MAX_TOKENS)),
             mounts,
         )
     except (PlannerError, ValueError) as exc:

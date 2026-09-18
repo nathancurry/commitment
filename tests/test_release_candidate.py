@@ -89,7 +89,7 @@ class ReleaseCandidate(unittest.TestCase):
         self.assertIn('Planner suggestions are leads to evaluate, not assigned tasks', agent)
         self.assertIn('Straightforward work does not require consultation', agent)
         self.assertIn('ALLOW_SUBAGENTS=false', config)
-        self.assertIn('OPENROUTER_PLANNER_MODEL=z-ai/glm-5.3', config)
+        self.assertIn('PLANNER_MODEL=glm-5.3', config)
 
 
 if __name__ == '__main__':

@@ -22,14 +22,16 @@ PLANNER_BROKER="$RUNTIME_DIR/planner-broker.py"
 source "$CONFIG_FILE"
 # The machine token is read only by the dedicated host broker from its file.
 unset BWS_ACCESS_TOKEN
-# The OpenRouter key is read only from its file by the dedicated host broker.
-unset OPENROUTER_API_KEY
+# Planner credential material is read only from its file by the dedicated host
+# broker. The legacy OpenRouter variable stays unset so an operator-exported
+# rollback key can never leak into children either.
+unset OPENROUTER_API_KEY CHEAPERINFERENCE_API_KEY
 BITWARDEN_SECRETS_ENABLED=${BITWARDEN_SECRETS_ENABLED:-false}
 [[ $BITWARDEN_SECRETS_ENABLED == true || $BITWARDEN_SECRETS_ENABLED == false ]] || die "BITWARDEN_SECRETS_ENABLED must be true or false"
-OPENROUTER_API_KEY_FILE=${OPENROUTER_API_KEY_FILE:-$CONFIG_HOME/commitment/openrouter-api-key}
-OPENROUTER_PLANNER_MODEL=${OPENROUTER_PLANNER_MODEL:-z-ai/glm-5.3}
-OPENROUTER_PLANNER_REASONING=${OPENROUTER_PLANNER_REASONING:-high}
-OPENROUTER_PLANNER_MAX_TOKENS=${OPENROUTER_PLANNER_MAX_TOKENS:-16384}
+CHEAPERINFERENCE_API_KEY_FILE=${CHEAPERINFERENCE_API_KEY_FILE:-$CONFIG_HOME/commitment/cheaperinference-api-key}
+PLANNER_MODEL=${PLANNER_MODEL:-glm-5.3}
+PLANNER_REASONING=${PLANNER_REASONING:-high}
+PLANNER_MAX_TOKENS=${PLANNER_MAX_TOKENS:-16384}
 
 for name in COMMITMENT_REPO COMMITMENT_BRANCH COMMITMENT_UPSTREAM_URL LAB_REPO LAB_BRANCH LAB_UPSTREAM_URL OLLAMA_ENDPOINT OLLAMA_MODEL OLLAMA_CONTEXT OLLAMA_OUTPUT SESSION_TIMEOUT PUBLISH_MODE CONTAINER_IMAGE GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL; do
     [[ -n ${!name:-} ]] || die "$name is required in $CONFIG_FILE"
@@ -81,14 +83,14 @@ for mount in "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-config" "$STATE
         "$mount_path"|"$mount_path"/*) die "Bitwarden token path must stay outside all creative mounts" ;;
     esac
 done
-planner_key_path=$(readlink -m -- "$OPENROUTER_API_KEY_FILE")
+planner_key_path=$(readlink -m -- "$CHEAPERINFERENCE_API_KEY_FILE")
 for mount in "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-config" \
         "$STATE_DIR/opencode-data" "$STATE_DIR/outcomes" "$OUTCOME_HELPER" \
         "$LOG_HELPER" "$RUNTIME_DIR/commitment-secret.py" \
         "$RUNTIME_DIR/commitment-plan.py"; do
     mount_path=$(readlink -m -- "$mount")
     case $planner_key_path in
-        "$mount_path"|"$mount_path"/*) die "OpenRouter key path must stay outside all creative mounts" ;;
+        "$mount_path"|"$mount_path"/*) die "CheaperInference key path must stay outside all creative mounts" ;;
     esac
 done
 
@@ -273,10 +275,10 @@ if [[ -x $RUNTIME_DIR/commitment-plan.py ]]; then
 fi
 if [[ -f $PLANNER_BROKER && -x $RUNTIME_DIR/commitment-plan.py && $interrupted == 0 ]]; then
     planner_directory=$(mktemp -d "$STATE_DIR/planner-session.XXXXXX")
-    OPENROUTER_API_KEY_FILE="$OPENROUTER_API_KEY_FILE" \
-        OPENROUTER_PLANNER_MODEL="$OPENROUTER_PLANNER_MODEL" \
-        OPENROUTER_PLANNER_REASONING="$OPENROUTER_PLANNER_REASONING" \
-        OPENROUTER_PLANNER_MAX_TOKENS="$OPENROUTER_PLANNER_MAX_TOKENS" \
+    CHEAPERINFERENCE_API_KEY_FILE="$CHEAPERINFERENCE_API_KEY_FILE" \
+        PLANNER_MODEL="$PLANNER_MODEL" \
+        PLANNER_REASONING="$PLANNER_REASONING" \
+        PLANNER_MAX_TOKENS="$PLANNER_MAX_TOKENS" \
         python3 -IB "$PLANNER_BROKER" "$planner_directory" "$$" \
         "$COMMITMENT_REPO" "$LAB_REPO" "$STATE_DIR/opencode-config" \
         "$STATE_DIR/opencode-data" "$outcome_directory" "$OUTCOME_HELPER" \

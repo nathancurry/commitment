@@ -14,8 +14,8 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -m 700 "$TMP/ipc" "$TMP/operator"
-printf '%s\n' fixture-openrouter-key-material >"$TMP/operator/openrouter-api-key"
-chmod 600 "$TMP/operator/openrouter-api-key"
+printf '%s\n' fixture-cheaperinference-key-material >"$TMP/operator/cheaperinference-api-key"
+chmod 600 "$TMP/operator/cheaperinference-api-key"
 python3 -IB "$ROOT/tests/fixtures/planner-server.py" "$ROOT/planner-broker.py" "$TMP/ipc" &
 broker_pid=$!
 for ((i=0; i<100; i++)); do
@@ -28,7 +28,8 @@ if ! podman run --http-proxy=false --rm --network=none --security-opt=no-new-pri
     -v "$TMP/ipc:/run/commitment-planner:ro,Z" \
     -v "$ROOT/commitment-plan.py:/usr/local/bin/commitment-plan:ro,Z" \
     "$IMAGE" sh -eu -c '
-        test -z "${OPENROUTER_API_KEY:-}${OPENROUTER_API_KEY_FILE:-}${OPENROUTER_PLANNER_MODEL:-}"
+        test -z "${CHEAPERINFERENCE_API_KEY:-}${CHEAPERINFERENCE_API_KEY_FILE:-}${PLANNER_MODEL:-}${OPENROUTER_API_KEY:-}${OPENROUTER_API_KEY_FILE:-}${OPENROUTER_PLANNER_MODEL:-}"
+        test ! -e /home/commitment/.config/commitment/cheaperinference-api-key
         test ! -e /home/commitment/.config/commitment/openrouter-api-key
         test "$(printf "%s\n" "model=evil Authorization=evil URL=https://evil.invalid" | commitment-plan)" = \
              "fixture advice: model=evil Authorization=evil URL=https://evil.invalid"
@@ -37,7 +38,7 @@ if ! podman run --http-proxy=false --rm --network=none --security-opt=no-new-pri
     cat "$TMP/client.out" "$TMP/client.err" >&2
     exit 1
 fi
-! grep -Fq fixture-openrouter-key-material "$TMP/client.out" "$TMP/client.err"
+! grep -Fq fixture-cheaperinference-key-material "$TMP/client.out" "$TMP/client.err"
 kill -TERM "$broker_pid"
 wait "$broker_pid"
 broker_pid=''

@@ -184,7 +184,7 @@ class Runtime(unittest.TestCase):
                       SESSION_TIMEOUT='10', PUBLISH_MODE='checkpoint', CONTAINER_IMAGE='fixture',
                       GIT_AUTHOR_NAME='Fixture', GIT_AUTHOR_EMAIL='fixture@example.invalid',
                       BITWARDEN_SECRETS_ENABLED='false',
-                      OPENROUTER_API_KEY_FILE=str(self.root / 'operator/openrouter-api-key'))
+                      CHEAPERINFERENCE_API_KEY_FILE=str(self.root / 'operator/cheaperinference-api-key'))
         config.update(settings)
         (self.root / 'config.env').write_text(''.join(f'{k}={v}\n' for k, v in config.items()))
         self.launch_env = {**self.env, 'FIXTURE_ROOT': str(self.root),
@@ -194,6 +194,7 @@ class Runtime(unittest.TestCase):
         # These are deliberately supplied to the HOST, never the creative arguments.
         self.launch_env['BWS_ACCESS_TOKEN'] = 'host-only-fixture'
         self.launch_env['OPENROUTER_API_KEY'] = 'host-env-openrouter-fixture'
+        self.launch_env['CHEAPERINFERENCE_API_KEY'] = 'host-env-cheaperinference-fixture'
         return runtime / 'run.sh'
 
     def launch(self, mode='NOOP', check=True, **settings):
@@ -293,11 +294,11 @@ class Runtime(unittest.TestCase):
     def test_planner_key_and_controls_stay_outside_creative_surfaces(self):
         operator = self.root / 'operator'
         operator.mkdir()
-        key = operator / 'openrouter-api-key'
-        material = 'fixture-openrouter-key-material'
+        key = operator / 'cheaperinference-api-key'
+        material = 'fixture-cheaperinference-key-material'
         key.write_text(material + '\n')
         key.chmod(0o600)
-        path = self.prepare_launcher(OPENROUTER_API_KEY_FILE=str(key))
+        path = self.prepare_launcher(CHEAPERINFERENCE_API_KEY_FILE=str(key))
         result = self.call(path, env={**self.launch_env, 'FIXTURE_MODE': 'NOOP'})
         args = json.loads((self.root / 'creative.args').read_text())
         config = (self.root / 'state/opencode-config/opencode.json').read_text()
@@ -305,7 +306,12 @@ class Runtime(unittest.TestCase):
         self.assertNotIn(material, surfaces)
         self.assertNotIn(str(key), json.dumps(args))
         self.assertNotIn('OPENROUTER_', json.dumps(args))
+        self.assertNotIn('CHEAPERINFERENCE_', json.dumps(args))
+        self.assertNotIn('PLANNER_', json.dumps(args))
         self.assertNotIn('openrouter', config.lower())
+        self.assertNotIn('cheaperinference', config.lower())
+        self.assertNotIn('host-env-openrouter-fixture', surfaces)
+        self.assertNotIn('host-env-cheaperinference-fixture', surfaces)
         self.assertTrue(any('/usr/local/bin/commitment-plan:ro,Z' in arg for arg in args))
         self.assertTrue(any('/run/commitment-planner:ro,Z' in arg for arg in args))
         self.assertEqual(json.loads(config)['permission']['task'], 'deny')
@@ -323,7 +329,8 @@ class Runtime(unittest.TestCase):
         config = self.root / 'config.env'
         config.write_text(''.join(
             line for line in config.read_text().splitlines(keepends=True)
-            if not line.startswith('OPENROUTER_')))
+            if not (line.startswith('OPENROUTER_') or line.startswith('CHEAPERINFERENCE_')
+                    or line.startswith('PLANNER_'))))
         result = self.call(path, env={
             **self.launch_env, 'FIXTURE_MODE': 'NOOP',
             'XDG_CONFIG_HOME': str(self.root / 'old-config-home')})
@@ -331,7 +338,7 @@ class Runtime(unittest.TestCase):
         self.assert_saved()
 
     def test_planner_key_path_cannot_be_any_creative_mount_source(self):
-        path = self.prepare_launcher(OPENROUTER_API_KEY_FILE=str(
+        path = self.prepare_launcher(CHEAPERINFERENCE_API_KEY_FILE=str(
             self.root / 'runtime/commitment-plan.py'))
         result = self.call(path, env={**self.launch_env, 'FIXTURE_MODE': 'NOOP'}, check=False)
         self.assertNotEqual(result.returncode, 0)
@@ -398,7 +405,7 @@ class Runtime(unittest.TestCase):
         env = {**self.launch_env, 'HOME': str(self.root / 'home'),
                'XDG_CONFIG_HOME': str(self.root / 'config'),
                'XDG_DATA_HOME': str(self.root / 'data'), 'COMMITMENT_SKIP_BUILD': '1'}
-        planner_key = self.root / 'config/commitment/openrouter-api-key'
+        planner_key = self.root / 'config/commitment/cheaperinference-api-key'
         planner_key.parent.mkdir(parents=True)
         planner_key.write_text('operator-owned-fixture-key\n')
         planner_key.chmod(0o600)

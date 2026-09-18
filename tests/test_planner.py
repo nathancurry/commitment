@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline tests for the narrow OpenRouter planner boundary."""
+"""Offline tests for the narrow CheaperInference planner boundary."""
 
 import importlib.util
 import io
@@ -18,7 +18,7 @@ spec = importlib.util.spec_from_file_location(
 )
 planner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(planner)
-KEY = "fixture-openrouter-key-material"
+KEY = "fixture-cheaperinference-key-material"
 
 
 class Response(io.BytesIO):
@@ -51,7 +51,7 @@ class Planner(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="commitment-planner-test-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.key = self.root / "openrouter-api-key"
+        self.key = self.root / "cheaperinference-api-key"
         self.key.write_text(KEY + "\n")
         self.key.chmod(0o600)
 
@@ -87,8 +87,10 @@ class Planner(unittest.TestCase):
         self.assertEqual(backend.plan(hostile), "Useful final advice")
         request, timeout = opener.requests[0]
         payload = json.loads(request.data)
+        self.assertEqual(planner.ENDPOINT,
+                         "https://api.cheaperinference.com/v1/chat/completions")
         self.assertEqual(request.full_url, planner.ENDPOINT)
-        self.assertEqual(payload["model"], "z-ai/glm-5.3")
+        self.assertEqual(payload["model"], "glm-5.3")
         self.assertEqual(payload["reasoning"], {"effort": "high", "exclude": True})
         self.assertEqual(payload["max_completion_tokens"], 16384)
         self.assertEqual(
