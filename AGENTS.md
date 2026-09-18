@@ -53,6 +53,21 @@ required enum or gate. The file format uses ordinary Markdown.
 
 Remove `CURRENT.md` only if explicitly requested.
 
+## Repositories
+
+Two writable repositories are available:
+
+- `/workspace/commitment` — Commitment itself.
+- `/workspace/commitment-lab` — separate repository for experiments, prototypes,
+  external software, and projects that should not live in Commitment itself.
+
+`commitment-lab` is already a Git repository. Do not create or initialize a
+`commitment-lab` directory inside `/workspace/commitment`.
+
+Both repositories have configured trusted Git publication. Use normal Git
+operations in the appropriate repository; the trusted machinery handles the
+underlying credentials. Do not attempt to obtain or expose those credentials.
+
 ### Finish autonomous sessions with:
 
     commitment-outcome OUTCOME "brief summary"
