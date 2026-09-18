@@ -1,42 +1,59 @@
 # CURRENT
 
 ## Now
-Between tasks - reconciliation complete, ready to resume Fear of Commitment work
+Repository boundary failure observed - need to analyze and implement durable correction
 
 ## Objective
-Completed: Reconciled repository state by moving Fear of Commitment prototype to correct location and cleaning up orphaned files.
+Analyze the repository boundary failure incidents and implement durable corrections to:
+1. Prevent `node_modules/` from being committed in `commitment-lab`
+2. Ensure `CURRENT.md` remains Commitment-specific and doesn't get contaminated with lab project state
+3. Maintain clear separation between Commitment's working state and lab projects
 
 ## Current Stage
-- Repository state reconciled
-- Fear of Commitment prototype moved to `/workspace/commitment-lab/`
-- Orphaned `/workspace/commitment/commitment-lab/` directory removed
-- Working tree clean in both repositories
-- Ready to resume Fear of Commitment implementation
+- Repository state currently clean (operator has repaired issues)
+- Two specific boundary failures identified:
+  * `node_modules/` committed and pushed in `commitment-lab`
+  * `CURRENT.md` cross-contamination (lab project state in Commitment repository)
+- Fear of Commitment implementation paused to address boundary hygiene
+- Need to implement technical and process safeguards
 
 ## Important Findings
-1. **Successful reconciliation**:
-   - Fear of Commitment prototype (ARCHITECTURE.md, package.json, README.md) successfully moved to `/workspace/commitment-lab/`
-   - Committed to lab repository as "Move Fear of Commitment prototype"
-   - Orphaned directory removed
-   - Working tree clean
+1. **Boundary violation patterns**:
+   - Session confused repository contexts, writing lab project state to Commitment's CURRENT.md
+   - No technical safeguards against committing `node_modules/` in lab repository
 
-2. **Fear of Commitment prototype status**:
-   - Architecture well-designed for independent monitoring
-   - Core components defined: Observer Core, Runtime Monitor, Container Monitor, Git Monitor, Broker Monitor, Network Monitor
-   - Non-interference principle emphasized
-   - Ready for implementation
+2. **Repository separation principle**:
+   - `/workspace/commitment/` = Commitment itself
+   - `/workspace/commitment-lab/` = external projects and experiments
+   - Each must maintain independent state and identity
 
-3. **Repository boundaries respected**:
-   - `/workspace/commitment/` contains only Commitment itself
-   - `/workspace/commitment-lab/` contains experiments and prototypes
-   - Both repositories maintain separate identities
+3. **Current clean state**:
+   - Operator has already fixed both repositories
+   - `node_modules/` removed from tracking in lab
+   - CURRENT.md restored to Commitment-specific state
+   - Valid runlog entries preserved
 
 ## Next Move
-1. Begin implementing Fear of Commitment monitoring system in `/workspace/commitment-lab/`
-2. Start with Observer Core implementation
-3. Implement basic Runtime Monitor for process observation
-4. Create initial event handling and report generation
-5. Ensure non-interference with Commitment operations
+1. **Analyze boundary failure causes**:
+   - Review session logs to understand how boundary confusion occurred
+   - Identify what triggered cross-contamination of CURRENT.md
 
-Active work thread: Fear of Commitment monitoring system implementation
+2. **Implement technical safeguards**:
+   - Add git pre-commit hook in lab to block `node_modules/` commits
+   - Add repository validation to detect cross-contamination
+   - Consider workspace configuration options
 
+3. **Document boundary principles**:
+   - Update instructions or create boundary guidance document
+   - Make repository separation principles explicit
+
+4. **Test corrections**:
+   - Verify safeguards work in practice
+   - Ensure they're maintainable and not overly restrictive
+
+5. **Resume Fear of Commitment work**:
+   - Only after boundary hygiene is established
+   - With improved safeguards in place
+
+## Active Work Thread
+Repository boundary hygiene enhancement - implementing durable corrections
