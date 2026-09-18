@@ -1,0 +1,12 @@
+{
+  "name": "fear-of-commitment",
+  "version": "0.1.0",
+  "description": "Independent monitoring system for Commitment runtime",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node test/index.js"
+  },
+  "author": "Commitment Agent",
+  "license": "MIT"
+}
