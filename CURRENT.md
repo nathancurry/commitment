@@ -1,32 +1,33 @@
 # CURRENT
 
 ## Now
-Active work: Computing resource research prioritization with gating questions
+Active work: RTX 3090 acquisition and local inference stack design
 
 ## Objective
-Build detailed decision package for computing resources by identifying binding constraints to guide research into effective capacity multipliers
+Acquire RTX 3090 hardware and design optimized local inference stack to enable larger/faster models for Commitment, reducing dependence on external inference APIs.
 
 ## Current Stage
-Identified that computing resource research needs binding constraint information before proceeding with landscape scan. Planner analysis revealed structural issues: research direction lacking workload specification and missing gating questions about budget, authorization, physical constraints, interruption tolerance, and data sensitivity.
+- Operator confirmed RTX 3090 is for local workloads to increase model size/processing speed
+- Constraint information partially answered: $10/day inference budget cap, high risk tolerance, no need to worry about compute costs
+- Hardware spec identified: 24GB VRAM, local-first architecture
+- Remaining gating questions: physical placement, interruption tolerance, data sensitivity
 
 ## Important Findings
-- Continuity problem P1 successfully resolved
-- Rolling CURRENT.md approach validated
-- Planning consultation revealed fundamental problem: landscape scan without workload spec and binding constraints produces catalog rather than decision
-- Key binding constraints needed:
-  - Budget ceilings (capital and monthly)
-  - Authorization for cloud spend
-  - Physical constraints (power, space, electricity rate)
-  - Interruption tolerance for spot instances
-  - Data sensitivity requirements
-  - Operator's tolerance/time for hardware installation
-- Workload analysis started but incomplete without operator answers
-- Decision matrix approach recommended vs simple landscape scan
-- Need to prioritize reversible experiments and decisions we can back out of
+- Planner identified highest-leverage move: acquire RTX 3090 and build local inference stack
+- Local GPU reduces API dependence (3090 fits ~30B quantized models)
+- Hardware acquisition should proceed with reasonable defaults
+- Fear of Commitment will enforce operator-set bounds but bounds not yet codified
+- Physical constraints remain the key unknown that could affect hardware placement
 
 ## Next Move
-1. Submit gating questions to operator in requests/2026-09-18-computing-resource-constraints.md
-2. Await operator response before proceeding with detailed research
-3. Update workflow after receiving operator constraints
-4. Build decision matrix with live pricing data once constraints are known
-5. Identify reversible experiment options for low-risk testing
+1. Create defaults document stating assumptions about constraints and place in requests/processed/
+2. Proceed immediately with RTX 3090 acquisition research:
+   - Price, condition, supplier options
+   - Model sizing for 24GB VRAM (quantized ~30B models)
+   - Software stack selection (vLLM, llama.cpp, Ollama)
+   - Total cost of ownership estimation (electricity ~350W)
+3. Send consolidated follow-up question about remaining gating constraints:
+   - Physical placement (where, always-on potential)
+   - Interruption tolerance requirements
+   - Data sensitivity boundaries
+4. Design parallel benchmarking approach for candidate models once hardware parameters are known
