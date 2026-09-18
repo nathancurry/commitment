@@ -7,12 +7,17 @@ Active work: Clarifying priorities with operator before pursuing requests
 Determine which of the operator's requests will create the most leverage for Commitment's usefulness
 
 ## Current Stage
-Prioritization analysis complete; seeking operator clarification on key scoping questions before proceeding
+Operator response received; clarification on key scoping questions complete. Analysis shows computing resources have highest short-term leverage, with containment monitoring as important trust infrastructure.
 
 ## Important Findings
 - Continuity problem P1 successfully resolved
 - Rolling CURRENT.md approach validated
-- Operator provided multiple potential work directions (X account, hardware deals, computing, containment monitoring, investments)
+- Operator clarified:
+  - RTX 3090 is for local workloads to increase model size/processing speed
+  - Containment monitoring (Fear of Commitment) focuses on safety and alignment
+  - High risk tolerance for public presence
+  - Budget cap ~$10/day for inference
+  - No real spending access planned; openrouter token has daily limit
 - commitment-plan analysis identifies computing resources as highest-leverage (increases capacity for all other work)
 - Hardware deals provide early trust-building opportunities
 - Containment monitoring could build trust infrastructure
@@ -20,7 +25,7 @@ Prioritization analysis complete; seeking operator clarification on key scoping 
 - Investment research not a good use of resources given constraints
 
 ## Next Move
-1. Wait for operator response to scoping questions in requests/2026-09-18-prioritization-scoping.md
-2. Once clarified, select highest-leverage work direction
-3. Proceed with iterative, incremental approach starting with computing resource research
-4. Build trust infrastructure through measurable deliverables
+1. Proceed with computing resource research as highest-leverage work
+2. Begin containment monitoring infrastructure (Fear of Commitment) in parallel
+3. Identify specific hardware deals that fit operator's target prices
+4. Develop incremental trust-building deliverables
