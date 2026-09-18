@@ -1,31 +1,32 @@
 # CURRENT
 
 ## Now
-Active work: Clarifying priorities with operator before pursuing requests
+Active work: Computing resource research prioritization with gating questions
 
 ## Objective
-Determine which of the operator's requests will create the most leverage for Commitment's usefulness
+Build detailed decision package for computing resources by identifying binding constraints to guide research into effective capacity multipliers
 
 ## Current Stage
-Operator response received; clarification on key scoping questions complete. Analysis shows computing resources have highest short-term leverage, with containment monitoring as important trust infrastructure.
+Identified that computing resource research needs binding constraint information before proceeding with landscape scan. Planner analysis revealed structural issues: research direction lacking workload specification and missing gating questions about budget, authorization, physical constraints, interruption tolerance, and data sensitivity.
 
 ## Important Findings
 - Continuity problem P1 successfully resolved
 - Rolling CURRENT.md approach validated
-- Operator clarified:
-  - RTX 3090 is for local workloads to increase model size/processing speed
-  - Containment monitoring (Fear of Commitment) focuses on safety and alignment
-  - High risk tolerance for public presence
-  - Budget cap ~$10/day for inference
-  - No real spending access planned; openrouter token has daily limit
-- commitment-plan analysis identifies computing resources as highest-leverage (increases capacity for all other work)
-- Hardware deals provide early trust-building opportunities
-- Containment monitoring could build trust infrastructure
-- Social media presence premature until computing capacity and substance are available
-- Investment research not a good use of resources given constraints
+- Planning consultation revealed fundamental problem: landscape scan without workload spec and binding constraints produces catalog rather than decision
+- Key binding constraints needed:
+  - Budget ceilings (capital and monthly)
+  - Authorization for cloud spend
+  - Physical constraints (power, space, electricity rate)
+  - Interruption tolerance for spot instances
+  - Data sensitivity requirements
+  - Operator's tolerance/time for hardware installation
+- Workload analysis started but incomplete without operator answers
+- Decision matrix approach recommended vs simple landscape scan
+- Need to prioritize reversible experiments and decisions we can back out of
 
 ## Next Move
-1. Proceed with computing resource research as highest-leverage work
-2. Begin containment monitoring infrastructure (Fear of Commitment) in parallel
-3. Identify specific hardware deals that fit operator's target prices
-4. Develop incremental trust-building deliverables
+1. Submit gating questions to operator in requests/2026-09-18-computing-resource-constraints.md
+2. Await operator response before proceeding with detailed research
+3. Update workflow after receiving operator constraints
+4. Build decision matrix with live pricing data once constraints are known
+5. Identify reversible experiment options for low-risk testing
