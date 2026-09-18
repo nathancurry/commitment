@@ -1,3 +1,7 @@
+#!/bin/bash
+# Script to update CURRENT.md with new gating answers information
+
+cat << 'EOF' > /workspace/commitment/CURRENT.md
 # CURRENT
 
 ## Now
@@ -41,3 +45,4 @@ Acquire RTX 3090 hardware and design optimized local inference stack to enable l
    - Monitoring/observation vs enforcement approach
 4. Benchmark candidate models with 24GB VRAM constraints once acquisition parameters known
 
+EOF
