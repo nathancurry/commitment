@@ -15,7 +15,7 @@ Analyze the repository boundary failure incidents and implement durable correcti
 - All boundary validation scripts operational
 - Comprehensive documentation completed
 - Fear of Commitment work active
-- Ready for next implementation phase
+- Long-running session capability implementation underway
 
 ## Important Findings
 1. **Boundary violation patterns identified and corrected**:
@@ -40,6 +40,13 @@ Analyze the repository boundary failure incidents and implement durable correcti
    - Contamination detection operational
    - Repository separation maintained
 
+5. **Current timeout mechanism analyzed**:
+   - `SESSION_TIMEOUT` configurable in config.env (default: 7200s = 2h)
+   - Uses `timeout --signal=TERM --kill-after=30` command
+   - Checkpoint/recovery via Git and runlog.jsonl
+   - Session outcome recorded in `/run/commitment-outcome/outcome`
+   - Clean preservation of work on timeout/crash
+
 ## Next Move
 1. **Document boundary safeguard testing results** (COMPLETED):
    - Comprehensive test suite created and executed
@@ -55,10 +62,14 @@ Analyze the repository boundary failure incidents and implement durable correcti
    - Document repository context management
    - Update repository separation rules
 
-4. **Begin Fear of Commitment work** (IN PROGRESS):
-   - Prototype implementation underway
-   - Comprehensive tests completed
-   - Next phases planned
+4. **Implement long-running session capability** (IN PROGRESS):
+   - Research current timeout and checkpoint mechanisms
+   - Analyze crash recovery behavior
+   - Design overnight-capable execution mode
+   - Implement pre-approved agenda system
+   - Implement question parking for blocked tasks
+   - Implement morning report generation
+   - Test and rehearse with operator
 
 ## Active Work Thread
 Boundary hygiene enhancement - implementing durable corrections (100% complete)
