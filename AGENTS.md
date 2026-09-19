@@ -76,4 +76,33 @@ where OUTCOME is `COMMITTED_CHANGE`, `NOOP`, `CHECKPOINT_UNFINISHED`, or
 `FAILED`.
 
 See `SECRETS.md` when working with Commitment-owned credentials.
-~
+
+## Repository Boundaries
+
+### Repository Context Management
+
+Two repositories exist with independent contexts:
+- `/workspace/commitment` - Contains Commitment itself, mission, agents, and CURRENT.md
+- `/workspace/commitment-lab` - Contains external projects, experiments, and prototypes
+
+**Always** be explicit about repository context:
+- Use `cd` deliberately when switching between repositories
+- Run boundary validation before critical operations:
+  ```bash
+  bash boundary-check.sh
+  bash validate-boundaries.sh
+  ```
+
+### State Isolation
+
+- `CURRENT.md` exists only in `/workspace/commitment/` and describes Commitment's state
+- Never write lab project state to `CURRENT.md`
+- Each lab project maintains its own documentation and state
+
+### Boundary Safeguards
+
+- Git pre-commit hook in lab blocks `node_modules/` commits
+- Validation scripts detect cross-contamination and boundary violations
+- Repository separation is enforced by construction
+
+See `REPOSITORY_BOUNDARIES.md` for comprehensive boundary guidelines.
