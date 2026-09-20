@@ -1,37 +1,26 @@
 # Parked Questions
 
-## Purpose
-This directory contains questions or decisions that are blocked waiting for operator input. Questions are parked when:
+This directory contains questions that are parked while awaiting operator input or clarification. Questions are parked when useful work can continue without immediate resolution.
 
-1. The question genuinely requires operator input
-2. The system cannot make useful progress without an answer
-3. The situation is not an emergency
+## Format
+Each parked question is stored in its own file named by timestamp and brief description:
+- `YYYYMMDD-HHMMSS-description.md`
 
-## Parking a Question
+## Content
+Each file should contain:
+- The question or issue
+- Context about where it was encountered
+- Relevant details for resolving it
+- Timestamps for when it was parked and any updates
 
-When a question needs to be parked:
+## Workflow
+1. When a question blocks progress, park it here
+2. Continue with other useful work from queue/ or agenda/
+3. When operator responds, check parked questions for related items
+4. Move resolved items to inbox/ for processing
 
-1. Create a new file in this directory with a descriptive name (e.g., "2026-09-20-should-we-purchase-x.md")
-2. Include:
-   - Clear question/decision needed
-   - Context for why the answer is needed
-   - Timestamp when parked
-   - Any relevant information
-
-## Morning Report Integration
-
-The morning report generator will:
-- List all parked questions
-- Show how long each has been waiting
-- Suggest priority order for operator review
-
-## Operator Response
-
-When responding to parked questions:
-- Move the file to `inbox/` directory
-- Add your response at the bottom of the file
-- Or create a new response file if preferred
-
-## Current Parked Questions
-
-Files in this directory represent questions waiting for operator response.
+## Management
+Questions should be reviewed periodically:
+- Resolve if possible without operator input
+- Remove stale questions (with justification)
+- Update context as new information becomes available

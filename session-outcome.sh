@@ -34,3 +34,8 @@ trap 'rm -f -- "$tmp"' EXIT
 jq -cn --arg session_id "$COMMITMENT_SESSION_ID" --arg outcome "$outcome" \
     --arg summary "$summary" '{session_id:$session_id, outcome:$outcome, summary:$summary}' >"$tmp"
 ln -- "$tmp" "$marker" || die "an outcome marker already exists"
+
+# Generate morning report for long-running sessions
+if [[ ${2:-} == *"morning report"* ]]; then
+    generate_morning_report "$outcome" "$summary"
+fi

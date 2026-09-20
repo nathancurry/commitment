@@ -160,6 +160,9 @@ EOF
 chmod 600 "$tmp_config"
 mv -f "$tmp_config" "$STATE_DIR/opencode-config/opencode.json"
 
+CONTINUITY_HELPER="$RUNTIME_DIR/session-continuity.sh"
+[[ -x "$CONTINUITY_HELPER" ]] || die "session continuity helper not installed: $CONTINUITY_HELPER"
+
 prompt_file="$RUNTIME_DIR/prompt.txt"
 [[ -r "$prompt_file" ]] || die "session prompt not found: $prompt_file"
 prompt=$(<"$prompt_file")
@@ -170,6 +173,10 @@ fi
 inbox_context=$("$INBOX_CONTEXT_HELPER" "$COMMITMENT_REPO")
 if [[ -n $inbox_context ]]; then
     prompt="$inbox_context"$'\n\n'"$prompt"
+fi
+continuity_context=$("$CONTINUITY_HELPER" "$COMMITMENT_REPO")
+if [[ -n $continuity_context ]]; then
+    prompt="$continuity_context"$'\n\n'"$prompt"
 fi
 COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$PUBLISHER" session-start commitment || note "session start logging unavailable"
 
