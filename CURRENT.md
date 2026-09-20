@@ -68,15 +68,13 @@ Analyze the repository boundary failure incidents and implement durable correcti
    - Additional observation modules under development
    - Long-running session capability research underway
 
-5. **Implement long-running session capability** (PENDING):
-   - Wait for operator response to overnight capability questions
-   - Research current timeout and checkpoint mechanisms
-   - Analyze crash recovery behavior
-   - Design overnight-capable execution mode
-   - Implement pre-approved agenda system
-   - Implement question parking for blocked tasks
-   - Implement morning report generation
-   - Test and rehearse with operator
+5. **Implement long-running session capability** (IN PROGRESS):
+   - Analyzed current timeout mechanism in run.sh
+   - Implemented agenda system (inbox/agenda.md created)
+   - Implemented parked questions directory
+   - Next: Update queue context helper, implement morning report generation
+   - Research session continuity mechanisms
+   - Design pre-approved agenda processing system
 
 ## Active Work Thread
 Boundary hygiene enhancement - implementing durable corrections (100% complete)
