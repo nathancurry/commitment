@@ -1,36 +1,80 @@
-# Overnight Session Agenda
+# Agenda
 
-## Purpose
-This file allows the operator to specify high-level goals or work directions before an overnight session. The system will identify useful sub-tasks from the agenda and report progress on agenda items.
+This file contains pre-approved work items that can be pursued during long-running sessions. Each agenda item should include:
+- A clear objective
+- Acceptance criteria
+- Any constraints or limitations
 
-## Format
-Each agenda item should be a bullet point with:
-- Clear objective
-- Optional success criteria
-- Optional resource constraints
+## Agenda Items
 
-## Example Agenda Items
+### Career Development & AI Skills
+**Objective**: Help operator improve AI skills and career opportunities through research, tooling, and continuous learning
 
-- Research opportunities to improve AI skills and career opportunities
-  - Success: Identify 3+ actionable opportunities
-  - Resources: Allow web searches, literature review, skill analysis
-  
-- Identify realistic opportunities to increase income/wealth
-  - Success: Document 2-3 viable opportunities with implementation paths
-  - Resources: Allow market research, opportunity analysis
+**Acceptance Criteria**:
+- Identify and document 3 high-impact AI skills gaps
+- Create learning plan with specific resources
+- Implement or evaluate tools to demonstrate progress
 
-- Implement long-running session capability for Commitment
-  - Success: Working state preservation, pre-approved agenda system, parking lot, morning reports
-  - Resources: Access to commit-time runtime files, Git operations
+**Constraints**: None
 
-- Experiment with local model inference optimization
-  - Success: Benchmark current performance, identify improvement opportunities
-  - Resources: Use available GPU/CPU/RAM, test inference stacks
+### Income Generation
+**Objective**: Find opportunities to increase operator's income or wealth through AI-powered solutions
 
-## Active Agenda Items
+**Acceptance Criteria**:
+- Research 5 viable income generation approaches using AI
+- Evaluate feasibility of at least 3 approaches
+- Document findings with implementation guidance
 
-Add new items below this line. Each new session will process the current agenda and add completed items to the "Completed" section.
+**Constraints**:
+- Must respect ethical guidelines
+- No financial investments without explicit authorization
+- Budget: $5 USD per day API spending limit
 
-## Completed Items
+### Long-Running Session Features
+**Objective**: Implement robust long-running session capability for extended operation (overnight)
 
-[Items will be moved here as they are completed]
+**Acceptance Criteria**:
+- Agenda system operational (this file processed)
+- Parked questions system working
+- Morning report generation functional
+- Resource tracking implemented
+- Continuous work discovery active
+
+**Constraints**:
+- Maintain existing timeout checkpoint mechanism
+- Preserve state durability through CURRENT.md
+- No artificial CPU/memory/GPU limits
+- $5 USD per day API budget respected
+
+### Model Architecture Research
+**Objective**: Investigate multi-model architecture with dynamic routing and task delegation
+
+**Acceptance Criteria**:
+- Analysis of current GLM-5.3 architecture completed
+- roles for Sol, Luna, Terra, Astra models documented
+- Switchboard/router architecture design proposed
+- Dynamic model selection system designed
+
+**Constraints**:
+- Local hardware resources available (12 CPU, 32GB RAM, RTX 5070 Ti 16GB VRAM)
+- Research can include model inference stack investigation
+
+## Workflow
+
+1. Agenda items are marked as "PENDING", "IN-PROGRESS", or "COMPLETED"
+2. During session start, agenda items are evaluated for usefulness
+3. Active agenda items are translated to specific tasks in queue/ or CURRENT.md
+4. Progress is tracked and reported in morning reports
+5. Completed items are moved to agenda.md.processed/
+
+## Current Status
+
+- $5 USD daily API spending limit in effect
+- No artificial resource limits
+- Host: 12 CPU, 32 GB RAM, NVIDIA RTX 5070 Ti 16 GB VRAM
+- Can investigate local model inference stacks
+- No prescribed overnight work - determine what's useful
+
+## Last Updated
+
+"$(date -Iseconds)"
