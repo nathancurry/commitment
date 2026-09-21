@@ -55,14 +55,14 @@ Analyze the repository boundary failure incidents and implement durable correcti
    - Tested with various scenarios (COMMITTED_CHANGE, NOOP, CHECKPOINT_UNFINISHED)
    - Sample commits created and verified
 
-2. **Investigate model architecture** (IN PROGRESS):
-   - Analyze current GLM-5.3-centered architecture
-   - Evaluate roles for Sol, Luna, Terra, Astra models
-   - Research switchboard/router architecture with local model
-   - Investigate task routing, rejection, and escalation mechanisms
-   - Design dynamic model selection system
-   - Generate implementation plan
-   - Move to processed after completion
+2. **Investigate model architecture** (COMPLETED):
+   - Analyzed current GLM-5.3-centered architecture
+   - Evaluated roles for Sol, Luna, Terra, Astra models
+   - Researched switchboard/router architecture with local model
+   - Investigated task routing, rejection, and escalation mechanisms
+   - Designed dynamic model selection system
+   - Generated implementation plan
+   - Moved to processed
 
 3. **Implement long-running session capability** (IN PROGRESS):
    - Analyzed current timeout mechanism in run.sh (SESSION_TIMEOUT default 7200s/2h)
@@ -76,11 +76,44 @@ Analyze the repository boundary failure incidents and implement durable correcti
    - Add resource tracking for API calls and compute usage
    - Create comprehensive report generation system
 
+4. **Agenda system processing** (NEW):
+   - Review agenda items from inbox/agenda.md
+   - Identify highest priority pre-approved work
+   - Transform agenda items into actionable tasks
+   - Create queue items for career development and income generation
+   - Update CURRENT.md to reflect new directions
+
 ## Active Work Thread
 Boundary hygiene enhancement - implementing durable corrections (100% complete)
 Fear of Commitment prototype implementation - active development
-## Fear of Commitment Context
 
-The Fear of Commitment monitoring prototype is being developed in the lab repository.
-This work is independent of Commitment and its documentation is maintained separately.
-CURRENT.md describes Commitment's work, not lab projects.
+## Agenda-Driven Directions
+
+### Career Development & AI Skills (PRIORITY)
+**Status**: Identifying high-impact skill gaps
+**Objective**: Help operator improve AI skills and career opportunities
+**Next Actions**:
+1. Identify 3 key AI skills gaps affecting career prospects
+2. Research and document specific learning resources
+3. Create implementation plan for skill development
+
+### Income Generation (PRIORITY)
+**Status**: Researching viable opportunities
+**Objective**: Find opportunities to increase operator's income/wealth through AI
+**Next Actions**:
+1. Research 5 AI-powered income generation approaches
+2. Evaluate feasibility of top 3 approaches
+3. Document findings with implementation guidance
+4. Stay within $5 USD daily API budget
+
+### Long-Running Session Features (CONTINUING)
+**Status**: Core capabilities implemented, refining reporting
+**Objective**: Robust overnight operation with useful tracking
+**Next Actions**:
+1. Finalize agenda processing in run.sh
+2. Complete morning report generation in session-outcome.sh
+3. Implement resource tracking (CPU, memory, API usage)
+4. Test checkpoint recovery mechanism
+
+### Model Architecture Research (COMPLETED)
+Move to processed - all requirements met
