@@ -48,14 +48,14 @@ Analyze the repository boundary failure incidents and implement durable correcti
    - Clean preservation of work on timeout/crash
 
 ## Next Move
-1. **Improve commit messages** (NEW PRIORITY):
-   - Address operator request for higher signal commit messages
-   - Modify commit-time runtime to include work descriptions
-   - Research best practices for meaningful commit messages
-   - Test implementation with sample commits
-   - Move to processed after completion
+1. **Improve commit messages** (COMPLETED):
+   - Modified agent-git.sh commit_dirty function to include work descriptions
+   - Commit messages now format as: `[TAG] Description - Work performed`
+   - Added truncation to prevent excessively long messages
+   - Tested with various scenarios (COMMITTED_CHANGE, NOOP, CHECKPOINT_UNFINISHED)
+   - Sample commits created and verified
 
-2. **Investigate model architecture** (NEW PRIORITY):
+2. **Investigate model architecture** (IN PROGRESS):
    - Analyze current GLM-5.3-centered architecture
    - Evaluate roles for Sol, Luna, Terra, Astra models
    - Research switchboard/router architecture with local model
