@@ -48,26 +48,23 @@ Analyze the repository boundary failure incidents and implement durable correcti
    - Clean preservation of work on timeout/crash
 
 ## Next Move
-1. **Document boundary safeguard testing results** (COMPLETED):
-   - Comprehensive test suite created and executed
-   - All safety mechanisms verified functional
+1. **Improve commit messages** (NEW PRIORITY):
+   - Address operator request for higher signal commit messages
+   - Modify commit-time runtime to include work descriptions
+   - Research best practices for meaningful commit messages
+   - Test implementation with sample commits
+   - Move to processed after completion
 
-2. **Finalize boundary documentation** (COMPLETED):
-   - REPOSITORY_BOUNDARIES.md complete with all principles
-   - Safeguard operation documented
-   - Troubleshooting guide included
+2. **Investigate model architecture** (NEW PRIORITY):
+   - Analyze current GLM-5.3-centered architecture
+   - Evaluate roles for Sol, Luna, Terra, Astra models
+   - Research switchboard/router architecture with local model
+   - Investigate task routing, rejection, and escalation mechanisms
+   - Design dynamic model selection system
+   - Generate implementation plan
+   - Move to processed after completion
 
-3. **Update AGENTS.md with boundary principles** (COMPLETED):
-   - Add boundary section to AGENTS.md
-   - Document repository context management
-   - Update repository separation rules
-
-4. **Fear of Commitment Prototype Implementation** (COMPLETED):
-   - Prototype observer core in lab repository
-   - Runtime monitor module implemented and tested
-   - Additional observation modules developed
-
-5. **Implement long-running session capability** (IN PROGRESS):
+3. **Implement long-running session capability** (CONTINUE):
    - Analyzed current timeout mechanism in run.sh
    - Implemented agenda system (inbox/agenda.md created)
    - Implemented parked questions directory

@@ -71,9 +71,22 @@ commit_dirty() {
     export GIT_AUTHOR_EMAIL=${AGENT_GIT_EMAIL:?configured Git identity is required}
     export GIT_COMMITTER_NAME=${AGENT_GIT_COMMITTER_NAME:-$GIT_AUTHOR_NAME}
     export GIT_COMMITTER_EMAIL=${AGENT_GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}
+    
+    # Build meaningful commit message with work description
+    local work_desc=""
+    if [[ -n ${AGENT_SUMMARY:-} ]]; then
+        # Truncate summary to prevent excessively long commit messages
+        local summary_max_len=140
+        if [[ ${#AGENT_SUMMARY} -gt $summary_max_len ]]; then
+            work_desc=" - ${AGENT_SUMMARY:0:$summary_max_len}..."
+        else
+            work_desc=" - ${AGENT_SUMMARY}"
+        fi
+    fi
+    
     # Recovery must not depend on a project's commit hooks accepting unfinished work.
     git -C "$repo" -c core.hooksPath=/dev/null add -A
-    git -C "$repo" -c core.hooksPath=/dev/null commit -m "$message"
+    git -C "$repo" -c core.hooksPath=/dev/null commit -m "${message}${work_desc}"
     require_clean
 }
 
