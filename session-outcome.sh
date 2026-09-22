@@ -37,5 +37,10 @@ ln -- "$tmp" "$marker" || die "an outcome marker already exists"
 
 # Generate morning report for long-running sessions
 if [[ ${2:-} == *"morning report"* ]]; then
-    generate_morning_report "$outcome" "$summary"
+    REPO_PATH="${COMMITMENT_REPO:-$COMMITMENT_ROOT}"
+    REPO_PATH="${REPO_PATH:-.}"
+    echo "" >>2
+    echo "Generating morning report..." >>2
+    /workspace/commitment/generate-morning-report.sh "$outcome" "$summary"
 fi
+

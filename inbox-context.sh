@@ -7,8 +7,111 @@ repo=${1:?repository path is required}
 generate_morning_report() {
     local outcome=$1
     local summary=$2
-    # Morning report generation logic would go here
+    local repo_path=$3
+    
+    local parked_count=0
+    
+    # Count parked questions
+    if [[ -d "$repo_path/parked-questions" ]]; then
+        parked_count=$(find "$repo_path/parked-questions" -maxdepth 1 -type f ! -name README.md | wc -l)
+    fi
+    
+    cat <<EOF
+# Session Morning Report
+
+## Session Overview
+- **Outcome**: $outcome
+- **Summary**: $summary
+- **Generated**: $(date -Iseconds)
+
+## Work Summary
+EOF
+    
+    printf "%s\n" "- Completed tasks: TDB"
+    printf "%s\n" "- Changes to commitment repository: TDB"
+    printf "%s\n" "- Changes to lab repository: TDB"
+    
+
+
+    cat <<EOF
+
+## Agenda Progress
+EOF
+    
+    # List active agenda items
+    process_agenda "$repo_path" | while read -r line; do
+        printf "  - %s\n" "$line"
+    done 2>/dev/null || true
+
+    cat <<EOF
+
+## Parked Questions
+EOF
+    
+    printf "%s\n" "- Total parked: ${parked_count}"
+    
+    # List parked questions
+    if (( parked_count > 0 )); then
+        printf "\nParked Questions:\n"
+        while IFS= read -r -d '' item; do
+            basename="${item#"$repo_path/parked-questions/"}"
+            printf "  - %s\n" "$basename"
+        done < <(find "$repo_path/parked-questions" -maxdepth 1 -type f ! -name README.md -print0 | LC_ALL=C sort -z) 2>/dev/null || true
+    fi
+
+    cat <<EOF
+
+## Session Resources
+- CPU usage: TDB (requires tracking)
+- Memory usage: TDB (requires tracking)
+- External API calls: TDB (requires tracking)
+- Session duration: TDB (requires tracking)
+
+## Next Steps
+- Review parked questions for operator input
+- Continue with active agenda items
+- Identify new useful work opportunities
+EOF
 }
+
+generate_session_morning_report() {
+    local outcome=$1
+    local summary=$2
+    
+    echo "# Morning Report"
+    echo ""
+    echo "## Session Summary"
+    echo "- Outcome: $outcome"
+    echo "- Summary: $summary"
+    
+    echo ""
+    echo "## Work Completed"
+    echo "- List of accomplished tasks from CURRENT.md"
+    echo "- Changes made to repositories"
+    
+    echo ""
+    echo "## Active Agenda Items"
+    echo "- Agenda items with status"
+    echo "- Progress toward goals"
+    
+    echo ""
+    echo "## Parked Questions"
+    echo "- Number of parked questions"
+    echo "- Questions awaiting input"
+    
+    echo ""
+    echo "## Resource Usage"
+    echo "- CPU time: TODO"
+    echo "- Memory usage: TODO"
+    echo "- API calls: TODO"
+    
+    echo ""
+    echo "## Recommendations"
+    echo "- Next steps based on current state"
+    echo "- Blockers requiring operator input"
+}
+
+
 
 process_agenda() {
     local repo_path=$1

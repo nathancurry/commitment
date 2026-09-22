@@ -68,22 +68,22 @@ Analyze the repository boundary failure incidents and implement durable correcti
 3. **Implement long-running session capability** (IN PROGRESS):
    - Analyzed current timeout mechanism in run.sh (SESSION_TIMEOUT default 7200s/2h)
    - Confirmed existing checkpoint/recovery via Git and runlog.jsonl
-   - Implemented agenda system (inbox/agenda.md and queue processing)
-   - Implemented parked questions directory with README
-   - Confirmed continuity solution via rolling CURRENT.md approach
-   - Next: Implement agenda processing in run.sh start script
-   - Design and implement pre-approved agenda handling
-   - Update session-outcome.sh to generate morning reports
+   - Implemented agenda system (inbox/processed/agenda.md processed)
+   - Implemented parked-questions directory with README
+   - Implemented session-continuity.sh for context building
+   - Confirmed continuity solution via rolling CURRENT.md
+   - Next: Implement agenda processing in run.sh
+   - Complete morning report generation in session-outcome.sh
    - Add resource tracking for API calls and compute usage
-   - Create comprehensive report generation system
+   - Test checkpoint recovery mechanism
 
 4. **Agenda system processing** (COMPLETED - Agenda items now active):
-   - Reviewed agenda items from inbox/agenda.md
+   - Reviewed agenda items from inbox/processed/agenda.md
    - Identified highest priority pre-approved work
    - Transformed agenda items into actionable tasks in CURRENT.md
    - Career Development & AI Skills: Identifying high-impact skill gaps
    - Income Generation: Researching viable opportunities
-   - Long-Running Session Features: Implementing reporting system
+   - Long-Running Session Features: Testing implementations
    - Moved to processed
 
 ## Active Work Thread
