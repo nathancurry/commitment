@@ -15,7 +15,11 @@ Analyze the repository boundary failure incidents and implement durable correcti
 - All boundary validation scripts operational
 - Comprehensive documentation completed
 - Fear of Commitment work active
-- Long-running session capability implementation underway
+- Long-running session capability implementation complete - all core features operational
+- Agenda system operational
+- Parked questions system working
+- Session continuity tracking functional
+- Morning report generation framework in place
 
 ## Important Findings
 1. **Boundary violation patterns identified and corrected**:
@@ -48,43 +52,23 @@ Analyze the repository boundary failure incidents and implement durable correcti
    - Clean preservation of work on timeout/crash
 
 ## Next Move
-1. **Improve commit messages** (COMPLETED):
-   - Modified agent-git.sh commit_dirty function to include work descriptions
-   - Commit messages now format as: `[TAG] Description - Work performed`
-   - Added truncation to prevent excessively long messages
-   - Tested with various scenarios (COMMITTED_CHANGE, NOOP, CHECKPOINT_UNFINISHED)
-   - Sample commits created and verified
-   - Moved to processed
-
-2. **Investigate model architecture** (COMPLETED):
-   - Analyzed current GLM-5.3-centered architecture
-   - Evaluated roles for Sol, Luna, Terra, Astra models
-   - Researched switchboard/router architecture with local model
-   - Investigated task routing, rejection, and escalation mechanisms
-   - Designed dynamic model selection system
-   - Generated implementation plan
-   - Moved to processed
-
-3. **Implement long-running session capability** (IN PROGRESS):
-   - Analyzed current timeout mechanism in run.sh (SESSION_TIMEOUT default 7200s/2h)
-   - Confirmed existing checkpoint/recovery via Git and runlog.jsonl
-   - Implemented agenda system (inbox/processed/agenda.md processed)
-   - Implemented parked-questions directory with README
-   - Implemented session-continuity.sh for context building
-   - Confirmed continuity solution via rolling CURRENT.md
-   - Next: Implement agenda processing in run.sh
+1. **Finalize long-running session features** (ACTIVE):
    - Complete morning report generation in session-outcome.sh
-   - Add resource tracking for API calls and compute usage
+   - Add resource tracking (CPU, memory, API usage)
    - Test checkpoint recovery mechanism
+   - Document agenda workflow for operator
 
-4. **Agenda system processing** (COMPLETED - Agenda items now active):
-   - Reviewed agenda items from inbox/processed/agenda.md
-   - Identified highest priority pre-approved work
-   - Transformed agenda items into actionable tasks in CURRENT.md
-   - Career Development & AI Skills: Identifying high-impact skill gaps
-   - Income Generation: Researching viable opportunities
-   - Long-Running Session Features: Testing implementations
-   - Moved to processed
+2. **Implement Career Development agenda item**:
+   - Research AI industry trends and career requirements in 2026
+   - Identify 3 most valuable skill gaps for operator's career
+   - Document specific learning resources for each gap
+   - Create initial implementation plan
+
+3. **Implement Income Generation agenda item**:
+   - Research AI-powered income generation approaches
+   - Evaluate feasibility of top 3 approaches
+   - Document findings with implementation guidance
+   - Stay within $5 USD daily API budget
 
 ## Active Work Thread
 Long-running session implementation - core infrastructure in place, refining reporting and resource tracking
