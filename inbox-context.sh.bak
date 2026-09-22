@@ -21,18 +21,25 @@ process_agenda() {
             
             # Look for status indicators in next few lines
             local status="PENDING"
-            while IFS= read -r status_line && [[ $status_line != "### "* ]]; do
-                if [[ $status_line == *" Status: "* ]]; then
-                    status="${status_line#*:}"
-                    status="${status%% *}"
+            # Read from agenda_content starting after current position
+            local lines_read=0
+            while IFS= read -r status_line && (( lines_read < 50 )); do
+                (( lines_read++ ))
+                if [[ $status_line != "### "* ]]; then
+                    if [[ $status_line == *"Status: "* ]]; then
+                        status="${status_line#*:}"
+                        status="${status%% *}"
+                        break
+                    fi
+                else
                     break
                 fi
-            done <<< "$agenda_content"
+            done << "$agenda_content"
             
             # Only output pending items
             if [[ "$status" == "PENDING" ]]; then
                 printf ' Agenda Item: %q (Status: %s)\n' "$item_name" "$status"
             fi
         fi
-    done <<< "$agenda_content"
+    done << "$agenda_content"
 }

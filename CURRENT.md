@@ -87,8 +87,7 @@ Analyze the repository boundary failure incidents and implement durable correcti
    - Moved to processed
 
 ## Active Work Thread
-Boundary hygiene enhancement - implementing durable corrections (100% complete)
-Fear of Commitment prototype implementation - active development
+Long-running session implementation - core infrastructure in place, refining reporting and resource tracking
 
 ## Agenda-Driven Directions
 
