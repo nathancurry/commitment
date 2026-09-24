@@ -1,14 +1,35 @@
 # CURRENT
 
 ## Now
-Operator input received with detailed career background and new work tracking request. Preparing to update work priorities based on comprehensive operator profile and robust work tracking requirements.
+Durable work tracking system implemented to prevent work loss. Active work items tracked in work/ directory with git-based audit trail. Waiting on operator clarification about employment vs side income before proceeding with career/income research.
 
 ## Objective
-1. Analyze new operator career background and update career development plan
-2. Review robust work tracking request and design appropriate solution
-3. Update active work threads in CURRENT.md
+1. **DO NOT PROCEED with career/income research until operator clarifies employment vs side income preference** (requested in requests/employment-vs-income-choice.md)
+2. Verify durable work tracking system prevents loss of active work items
+3. Complete long-running session features (morning report, resource tracking)
 4. Process inbox items and move to processed directory
-5. Continue long-running session implementation with enhanced work tracking
+
+## Current Stage
+- **Durable work system implementation**: COMPLETED
+  - work/ directory created with 4 work items
+  - Session start/end protocol designed
+  - Git-based audit trail through commit history
+  - Session ritual for reading/writing work state
+  
+- **Active work tracking**: COMPLETED
+  - Career development, income generation, long-running features tracking
+  - Fear of Commitment case study documented
+  - All state durable through git commits
+  
+- **Operator clarification pending**: IN-PROGRESS
+  - Employment vs side income question requested
+  - Research scope depends on operator response
+  
+- **Long-running features**: PARTIAL
+  - Agenda system operational
+  - Parked questions directory created
+  - Morning report framework in place
+  - Need to complete reporting system and resource tracking
 
 ## Current Stage
 - Repository boundary issues fully resolved
@@ -21,82 +42,59 @@ Operator input received with detailed career background and new work tracking re
 - Career research now informed by operator's technical background, goals, and constraints
 
 ## Important Findings
-1. **Operator Career Profile**:
-   - Red Hat Software Maintenance Engineer (ESS OpenShift team)
-   - Deep Linux, OpenShift, OpenStack, Python expertise
-   - Building internal AI tools: ESS Troubleshooting assistant and Salesforce terminal interface
-   - Uses AI tools extensively (ChatGPT, Codex, Claude Code, Gemini CLI, OpenRouter)
-   - 10 hours/week available for learning
-   - Career goal: earn $200k+, improve AI skills, build things
-   - Portfolio at github.com/nathancurry
 
-2. **Robust Work Tracking Request**:
-   - Current failure: unfinished Fear of Commitment work disappeared from CURRENT.md
-   - Need durable work lifecycle management (unfinished, deferred, blocked, abandoned, completed)
-   - Should support work origination, prioritization, deferral, resumption, abandonment
-   - Must interact with CURRENT.md, Git, inbox/, requests/, external/lab projects, session recovery
-   - Fear of Commitment work is useful evidence, not necessarily the solution
+1. **Durable Work System Implemented**:
+   - work/ directory with 4 active work items
+   - Each work item has clear objective, state, findings, next action
+   - Git-based audit trail prevents work loss
+   - Session ritual protocol established
 
-3. **Boundary violation patterns identified and corrected**:
-   - Git pre-commit hook prevents `node_modules/` commits in lab
-   - Validation scripts detect cross-contamination
-   - Clear repository separation enforced
+2. **Fear of Commitment Case Study**:
+   - Identified root cause: state lived in CURRENT.md only
+   - Documentation prevents recurrence
+   - Durable work system applies lesson learned
 
-4. **Technical safeguards operational**:
-   - `boundary-check.sh` - comprehensive validation
-   - `validate-boundaries.sh` - lightweight checks
-   - Pre-commit hook in lab repository
-   - Repository separation checks
+3. **Operator Clarification Needed**:
+   - Employment vs side income preference critical for research
+   - Request sent: requests/employment-vs-income-choice.md
+   - Scope of career/income research depends on answer
 
-5. **Comprehensive documentation created**:
-   - `REPOSITORY_BOUNDARIES.md` with principles and best practices
-   - Implementation notes and current status
-   - Troubleshooting guide
+4. **Long-Running Session Status**:
+   - Agenda processing operational
+   - Parked questions system ready
+   - Morning report framework in place
+   - Resource tracking remains to complete
 
-6. **All tests pass**:
-   - Pre-commit hook blocks node_modules commits
-   - Boundary validation works correctly
-   - Contamination detection operational
-   - Repository separation maintained
-
-7. **Current timeout mechanism analyzed**:
-   - `SESSION_TIMEOUT` configurable in config.env (default: 7200s = 2h)
-   - Uses `timeout --signal=TERM --kill-after=30` command
-   - Checkpoint/recovery via Git and runlog.jsonl
-   - Session outcome recorded in `/run/commitment-outcome/outcome`
-   - Clean preservation of work on timeout/crash
+5. **Repository Boundaries**:
+   - All tests passing
+   - Pre-commit hooks operational
+   - Boundary validation working correctly
 
 ## Next Move
-1. **Design robust work tracking system** (PRIORITY):
-   - Analyze Fear of Commitment unfinished work
-   - Design work lifecycle: unfinished/deferred/blocked/abandoned/completed
-   - Determine interaction with CURRENT.md, Git, inbox/, requests/
-   - Propose mechanism that supports work origination, prioritization, resumption
-
-2. **Update career development plan with operator background**:
-   - Research AI industry trends 2026 specifically for Linux/DevOps/OpenShift professionals
-   - Identify 3 high-impact skill gaps for Red Hat engineer with AI tools experience
-   - Document learning resources for: advanced Python/AI integration, OpenShift AI ops, AI troubleshooting automation
-   - Create implementation plan with GitHub repos and internal tool demonstrations
-
-3. **Implement robust work tracking mechanism**:
-   - Design durable work queue that persists across sessions
-   - Implement work lifecycle management
-   - Integrate with existing session continuity systems
-   - Test with Fear of Commitment as evidence case
-
-4. **Finalize long-running session features**:
-   - Complete morning report generation in session-outcome.sh
+1. **AWAIT OPERATOR RESPONSE on employment vs side income** (PRIORITY BLOCK)
+   - Research cannot proceed without clarification
+   - Monitor requests/employment-vs-income-choice.md
+   
+2. **Validate durable work tracking**
+   - Verify work state persists across sessions
+   - Test git-based audit trail
+   - Ensure CURRENT.md references work/ properly
+   
+3. **Complete long-running session features**
+   - Implement morning report in session-outcome.sh
    - Add resource tracking (CPU, memory, API usage)
-   - Test checkpoint recovery mechanism
-   - Document agenda workflow for operator
-
-5. **Process inbox items**:
-   - Move all processed files to inbox/processed/
-   - Update inbox state
+   - Document agenda workflow
+   
+4. **Process inbox items**
+   - None currently pending - all moved to processed
+   
+5. **Continue work protocol development**
+   - Document session ritual in work protocol
+   - Create migration guide for existing items
+   - Test with sample work items
 
 ## Active Work Thread
-Long-running session implementation - core infrastructure in place, refining reporting and resource tracking
+Durable work tracking system - implementation complete, validating with active work items. Waiting on operator clarification for career/income research.
 
 ## Agenda-Driven Directions
 
