@@ -1,46 +1,65 @@
 # CURRENT
 
 ## Now
-New operator input received - career development interview questions provide detailed context for career growth agenda item
+Operator input received with detailed career background and new work tracking request. Preparing to update work priorities based on comprehensive operator profile and robust work tracking requirements.
 
 ## Objective
-1. Prioritize career development research using the new operator background information
-2. Continue long-running session implementation (morning reports, resource tracking)
-3. Move processed inbox items to processed directory
-4. Update CURRENT.md to reflect active work threads
+1. Analyze new operator career background and update career development plan
+2. Review robust work tracking request and design appropriate solution
+3. Update active work threads in CURRENT.md
+4. Process inbox items and move to processed directory
+5. Continue long-running session implementation with enhanced work tracking
 
 ## Current Stage
 - Repository boundary issues fully resolved
-- Career development interview answers received - detailed operator background
+- Career development interview answers received with detailed operator background (Red Hat, OpenShift, Linux, Python, AI tools)
+- Operator has 10 hours/week for learning, wants to earn $200k+, building internal AI tools
+- Robust work tracking request received - need to design durable work lifecycle system
 - Long-running session features mostly implemented (agenda, parked questions)
 - Morning report generation framework in place
 - Need to complete reporting system and resource tracking
 - Career research now informed by operator's technical background, goals, and constraints
 
 ## Important Findings
-1. **Boundary violation patterns identified and corrected**:
+1. **Operator Career Profile**:
+   - Red Hat Software Maintenance Engineer (ESS OpenShift team)
+   - Deep Linux, OpenShift, OpenStack, Python expertise
+   - Building internal AI tools: ESS Troubleshooting assistant and Salesforce terminal interface
+   - Uses AI tools extensively (ChatGPT, Codex, Claude Code, Gemini CLI, OpenRouter)
+   - 10 hours/week available for learning
+   - Career goal: earn $200k+, improve AI skills, build things
+   - Portfolio at github.com/nathancurry
+
+2. **Robust Work Tracking Request**:
+   - Current failure: unfinished Fear of Commitment work disappeared from CURRENT.md
+   - Need durable work lifecycle management (unfinished, deferred, blocked, abandoned, completed)
+   - Should support work origination, prioritization, deferral, resumption, abandonment
+   - Must interact with CURRENT.md, Git, inbox/, requests/, external/lab projects, session recovery
+   - Fear of Commitment work is useful evidence, not necessarily the solution
+
+3. **Boundary violation patterns identified and corrected**:
    - Git pre-commit hook prevents `node_modules/` commits in lab
    - Validation scripts detect cross-contamination
    - Clear repository separation enforced
 
-2. **Technical safeguards operational**:
+4. **Technical safeguards operational**:
    - `boundary-check.sh` - comprehensive validation
    - `validate-boundaries.sh` - lightweight checks
    - Pre-commit hook in lab repository
    - Repository separation checks
 
-3. **Comprehensive documentation created**:
+5. **Comprehensive documentation created**:
    - `REPOSITORY_BOUNDARIES.md` with principles and best practices
    - Implementation notes and current status
    - Troubleshooting guide
 
-4. **All tests pass**:
+6. **All tests pass**:
    - Pre-commit hook blocks node_modules commits
    - Boundary validation works correctly
    - Contamination detection operational
    - Repository separation maintained
 
-5. **Current timeout mechanism analyzed**:
+7. **Current timeout mechanism analyzed**:
    - `SESSION_TIMEOUT` configurable in config.env (default: 7200s = 2h)
    - Uses `timeout --signal=TERM --kill-after=30` command
    - Checkpoint/recovery via Git and runlog.jsonl
@@ -48,23 +67,33 @@ New operator input received - career development interview questions provide det
    - Clean preservation of work on timeout/crash
 
 ## Next Move
-1. **Finalize long-running session features** (ACTIVE):
+1. **Design robust work tracking system** (PRIORITY):
+   - Analyze Fear of Commitment unfinished work
+   - Design work lifecycle: unfinished/deferred/blocked/abandoned/completed
+   - Determine interaction with CURRENT.md, Git, inbox/, requests/
+   - Propose mechanism that supports work origination, prioritization, resumption
+
+2. **Update career development plan with operator background**:
+   - Research AI industry trends 2026 specifically for Linux/DevOps/OpenShift professionals
+   - Identify 3 high-impact skill gaps for Red Hat engineer with AI tools experience
+   - Document learning resources for: advanced Python/AI integration, OpenShift AI ops, AI troubleshooting automation
+   - Create implementation plan with GitHub repos and internal tool demonstrations
+
+3. **Implement robust work tracking mechanism**:
+   - Design durable work queue that persists across sessions
+   - Implement work lifecycle management
+   - Integrate with existing session continuity systems
+   - Test with Fear of Commitment as evidence case
+
+4. **Finalize long-running session features**:
    - Complete morning report generation in session-outcome.sh
    - Add resource tracking (CPU, memory, API usage)
    - Test checkpoint recovery mechanism
    - Document agenda workflow for operator
 
-2. **Implement Career Development agenda item**:
-   - Research AI industry trends and career requirements in 2026
-   - Identify 3 most valuable skill gaps for operator's career
-   - Document specific learning resources for each gap
-   - Create initial implementation plan
-
-3. **Implement Income Generation agenda item**:
-   - Research AI-powered income generation approaches
-   - Evaluate feasibility of top 3 approaches
-   - Document findings with implementation guidance
-   - Stay within $5 USD daily API budget
+5. **Process inbox items**:
+   - Move all processed files to inbox/processed/
+   - Update inbox state
 
 ## Active Work Thread
 Long-running session implementation - core infrastructure in place, refining reporting and resource tracking
