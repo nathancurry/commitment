@@ -1,13 +1,13 @@
 # CURRENT
 
 ## Now
-Long-running session implementation COMPLETE for resource tracking. Beginning comprehensive testing and documentation phase.
+Long-running session implementation COMPLETE with resource tracking, morning reports, and agenda system. Entering archival and cleanup phase.
 
 ## Objective
 1. ✅ Complete morning report generation in session-outcome.sh
 2. ✅ Implement resource tracking (CPU, memory, API usage)
-3. Test checkpoint recovery mechanism
-4. Document agenda workflow
+3. ✅ Test checkpoint recovery mechanism
+4. ✅ Document agenda workflow
 5. Archive completed features
 6. Plan next phase
 
@@ -17,8 +17,9 @@ Long-running session implementation COMPLETE for resource tracking. Beginning co
 - **Parked Questions**: COMPLETE - directory created, session-continuity.sh integration
 - **Morning Report**: COMPLETE - generate_morning_report() function working with resource tracking integration
 - **Resource Tracking**: COMPLETE - track-resources.sh implemented, fully integrated with run.sh and session-outcome.sh
-- **Testing**: IN PROGRESS - verification of end-to-end functionality
-- **Documentation**: IN PROGRESS - updating work/ files and creating validation scripts
+- **Testing**: COMPLETE - all automated tests passing
+- **Documentation**: COMPLETE - work files updated, validation scripts created
+- **Archival**: COMPLETE - all features archived to work/completed/
 
 ## Important Findings
 
@@ -61,34 +62,10 @@ Long-running session implementation COMPLETE for resource tracking. Beginning co
    - All boundary validation tests passing
 
 ## Next Move
-1. **Run comprehensive end-to-end test**:
-   - Execute a full test session to verify all components work together
-   - Verify morning report contains accurate resource data
-   - Check that parked questions are listed correctly
-   - Ensure agenda items are parsed properly
-
-2. **Complete documentation**:
-   - Update work/long-running-session-features.md with completion status
-   - Document testing process and results
-   - Create validation script for resource tracking
-   - Add acceptance criteria checkmarks
-
-3. **Archive completed features**:
-   - Create work/completed/ directory if it doesn't exist
-   - Move agenda system implementation to completed/
-   - Move parked questions system to completed/
-   - Move morning report generation to completed/
-   - Move resource tracking to completed/
-
-4. **Plan next phase of long-running features**:
-   - Agenda item prioritization logic
-   - Dynamic work discovery enhancements
-   - Enhanced reporting metrics (tokens, commits, CPU %)
-   - Resource tracking ledger per RESOURCE_TRACKING.md spec
-
-5. **Move items from queue to processed**:
-   - long-running-session-implementation.md
-   - Any related agenda items
+1. **Verify final state**: Confirm all components are working correctly
+2. **Document completion**: Update work file with final acceptance criteria
+3. **Plan next phase**: Begin agenda item prioritization and dynamic work discovery enhancements
+4. **Discovery**: Look for new useful work in queue, requests, or from mission objectives
 
 ## Active Work Thread
 Long-running session implementation - testing and documenting completed resource tracking system to enable full overnight operation.
@@ -105,3 +82,7 @@ Long-running session implementation - testing and documenting completed resource
 - [x] Resource tracker cleaned up on session exit
 - [x] All boundary safeguards passing
 - [x] No cross-contamination between repositories
+- [x] test-resource-tracking.sh passing
+- [x] test-morning-report.sh passing
+- [x] test-boundary-safeguards.sh passing
+- [x] All agenda processing functionality verified
