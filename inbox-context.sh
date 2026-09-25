@@ -93,9 +93,40 @@ generate_morning_report() {
     
     echo ""
     echo "## Resource Usage"
-    echo "- CPU time: Session duration via timeout mechanism"
-    echo "- Memory usage: Container limit 8GB"
-    echo "- API calls: Tracked via runlog.jsonl"
+    
+    # Try to read resource metrics from tracking file
+    cpu_usage="Session duration"
+memory_usage="Container limit"
+api_calls="Tracked via runlog.jsonl"
+    
+    if [[ -f "/tmp/commitment-resources-$$" ]]; then
+        while IFS=: read -r key value; do
+            case $key in
+                cpu_start) cpu_start=$value ;;
+                mem_available_start) mem_start=$value ;;
+                start_time) start_time=$value ;;
+            esac
+        done < "/tmp/commitment-resources-$$"
+        
+        # Calculate CPU usage
+        cpu_current=$(grep "cpu " /proc/stat | awk '{print $2+$3+$4+$5+$6+$7+$8}')
+        cpu_diff=$((cpu_current - cpu_start))
+        cpu_usage=$((cpu_diff / 1000))ms
+        
+        # Calculate memory usage
+        mem_current=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+        mem_used=$((mem_start - mem_current))
+        memory_usage=$((mem_used / 1024))MB
+        
+        # Count API calls
+        if [[ -f "$repo_path/runlog.jsonl" ]]; then
+            api_calls=$(grep -c "webfetch\|websearch" "$repo_path/runlog.jsonl" 2>/dev/null || echo 0)
+        fi
+    fi
+    
+    echo "- CPU time: $cpu_usage"
+    echo "- Memory usage: $memory_usage"
+    echo "- API calls: $api_calls"
     
     echo ""
     echo "## Recommendations"

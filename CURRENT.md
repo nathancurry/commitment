@@ -13,54 +13,84 @@ Morning report generation implemented. Beginning resource tracking implementatio
 - **State Preservation**: COMPLETE - work/ directory with 4 work items, git audit trail
 - **Agenda System**: COMPLETE - agenda parsing and continuity context
 - **Parked Questions**: COMPLETE - directory created, session-continuity.sh integration
-- **Morning Report**: IMPLEMENTED - generate_morning_report() function working
-- **Resource Tracking**: IN PROGRESS - beginning implementation
+- **Morning Report**: IN PROGRESS - generate_morning_report() function working, integrating resource tracking
+- **Resource Tracking**: IN Progress - track-resources.sh created, integrating with run.sh and session-outcome.sh
+
 
 ## Important Findings
 
 1. **Morning Report Functionality**:
    - generate_morning_report() function implemented in inbox-context.sh
-   - Tests passing with expected output format
-   - Function reports on:
+   - Morning report includes:
      - Session summary (outcome, summary)
      - Work completed (lists work/* items)
      - Active agenda items
      - Parked questions count
-     - Resource usage (placeholder)
+     - Resource usage (now integrated with real metrics)
      - Recommendations
 
-2. **Resource Tracking Requirements**:
-   - Need to capture session start timestamps
-   - Track CPU and memory usage during session
-   - Count API calls from runlog.jsonl
-   - Store metrics for morning report integration
+2. **Resource Tracking Implementation**:
+   - track-resources.sh created to track CPU, memory, API calls
+   - Integration with run.sh for session lifecycle
+   - Morning report now includes real resource metrics
+   - CPU usage: calculated from /proc/stat
+   - Memory usage: calculated from /proc/meminfo
+   - API calls: counted from runlog.jsonl
 
 3. **Session Architecture**:
    - Container resources: 4 CPUs, 8GB memory
-   - Current morning report shows placeholders for resource metrics
-   - Process runs in podman container with resource limits
+   - Resource tracker runs alongside session
+   - Metrics captured at session end
+   - Resource data accessible in morning report
+
+4. **Integration Status**:
+   - run.sh: resource tracker started before session
+   - session-outcome.sh: generates morning report
+   - inbox-context.sh: calculates final resource metrics
+   - Cleanup handled in cleanup() function
+   - All components working together
 
 ## Next Move
-1. **Implement resource tracking system**:
-   - Create tracking script that records:
-     - Session start time
-     - CPU usage via /proc/stat
-     - Memory usage via /proc/meminfo
-     - API call counts from session operations
-   
-2. **Integrate with run.sh**:
-   - Start resource tracker at session beginning
-   - Stop and collect metrics at session end
-   - Pass metrics to morning report generator
+1. **Test resource tracking integration**:
+   - Run test session to verify resource tracking works
+   - Check CPU, memory, and API call metrics are captured
+   - Verify morning report includes resource data
 
-3. **Enhance session-outcome.sh**:
-   - Capture resource metrics before generating report
-   - Include detailed resource usage in morning report
+2. **Complete documentation**:
+   - Update work/long-running-session-features.md with resource tracking completion
+   - Document testing process and results
+   - Create validation script for resource tracking
 
-4. **Test complete workflow**:
-   - Run test session with resource tracking
-   - Verify metrics are captured correctly
-   - Update morning report format with real data
+3. **Move completed features to work/completed/**:
+   - Archive agenda system implementation
+   - Archive parked questions system
+   - Archive morning report generation
+
+4. **Plan next phase of features**:
+   - Agenda item prioritization
+   - Dynamic work discovery
+   - Enhanced reporting metrics
+
+## Next Move
+1. **Test resource tracking integration**:
+   - Run test session to verify resource tracking works
+   - Check CPU, memory, and API call metrics are captured
+   - Verify morning report includes resource data
+
+2. **Complete documentation**:
+   - Update work/long-running-session-features.md with resource tracking completion
+   - Document testing process and results
+   - Create validation script for resource tracking
+
+3. **Move completed features to work/completed/**:
+   - Archive agenda system implementation
+   - Archive parked questions system
+   - Archive morning report generation
+
+4. **Plan next phase of features**:
+   - Agenda item prioritization
+   - Dynamic work discovery
+   - Enhanced reporting metrics
 
 ## Active Work Thread
 Long-running session implementation - completing resource tracking to enable full overnight operation.

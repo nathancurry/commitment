@@ -234,6 +234,11 @@ export COMMITMENT_SESSION_ID
 cleanup() {
     cleanup_secrets
     cleanup_planner
+    if [[ -n $resource_tracker_pid ]]; then
+        kill -TERM "$resource_tracker_pid" 2>/dev/null || true
+        wait "$resource_tracker_pid" 2>/dev/null || true
+        resource_tracker_pid=''
+    fi
     rm -f -- "$outcome_directory/outcome"
     rmdir -- "$outcome_directory" 2>/dev/null || true
 }
@@ -336,6 +341,8 @@ container_args=(run --http-proxy=false --rm --name "$container_name"
     "$CONTAINER_IMAGE" opencode run "${continue_args[@]}" --agent commitment --model "ollama/$OLLAMA_MODEL" "$prompt")
 
 note "starting OpenCode session (timeout ${SESSION_TIMEOUT}s)"
+resource_tracker_pid=''
+[[ -f "$RUNTIME_DIR/track-resources.sh" ]] && export COMMITMENT_SESSION_ID="$COMMITMENT_SESSION_ID" "$RUNTIME_DIR/track-resources.sh" && resource_tracker_pid=$!
 agent_status=0
 if (( interrupted == 0 )); then
     timeout --signal=TERM --kill-after=30 "$SESSION_TIMEOUT" podman "${container_args[@]}" &

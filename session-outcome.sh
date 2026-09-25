@@ -36,11 +36,4 @@ jq -cn --arg session_id "$COMMITMENT_SESSION_ID" --arg outcome "$outcome" \
 ln -- "$tmp" "$marker" || die "an outcome marker already exists"
 
 # Generate morning report for long-running sessions
-if [[ ${2:-} == *"morning report"* ]]; then
-    REPO_PATH="${COMMITMENT_REPO:-$COMMITMENT_ROOT}"
-    REPO_PATH="${REPO_PATH:-.}"
-    echo "" >>2
-    echo "Generating morning report..." >>2
-    /workspace/commitment/generate-morning-report.sh "$outcome" "$summary"
-fi
-
+/workspace/commitment/generate-morning-report.sh "$outcome" "$summary" >>2 && echo "Morning report generated" >>2 || echo "Morning report not generated" >>2
