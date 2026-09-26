@@ -20,7 +20,7 @@ repository.
 | Brokers | `secret-broker.py`, `planner-broker.py` start on the host (`run.sh:257-311`) and the container reaches them only through request/response directories mounted `ro` | host |
 | Creative session | `podman run … opencode run` (`run.sh:314-341`), with both repos mounted `rw`, a `rw` outcome directory, and helper scripts mounted `ro` | container |
 | Agent instructions | `MISSION.md`, `AGENTS.md`, `.opencode/agents/commitment.md`, `CURRENT.md`, plus the prompt assembled from `prompt.txt` and context helpers (`run.sh:166-180`) | read by the model |
-| Durable state | `CURRENT.md`, `inbox/`, `queue/`, `requests/`, `memory/`, `work/`, `runlog.jsonl` (`AGENTS.md`, "Durable state") | agent repo |
+| Durable state | `CURRENT.md`, `inbox/`, `queue/`, `memory/`, `requests/`, `runlog.jsonl` (`AGENTS.md:5-11`; `processed/` convention at `AGENTS.md:13`). A `work/` directory is also used (`work-protocol.md:10`) but is not in the `AGENTS.md:5-11` list | agent repo |
 
 Session lifecycle in `run.sh`:
 
@@ -34,13 +34,13 @@ Session lifecycle in `run.sh`:
 
 ## 2. Strengths
 
-- **Credentials stay out of the sandbox by construction.** Tokens are read only on the host. `run.sh:24,28` unsets token variables. `run.sh:76-95` refuses to run if the Bitwarden or planner key path resolves inside any mount. `publish.sh:46-65` applies the same check plus a `0600` mode check to GitHub token files. The broker re-checks this (`secret-broker.py:56-61,327-341`).
+- **Named credential files are kept out of the main creative mounts by path checks.** The token environment variables are unset on the host (`run.sh:24,28`), and the container only receives the explicit `-e` variables at `run.sh:330-340`. Each credential file is then checked against a list of mount sources. The lists differ, and §3.3 gives the exact coverage and its limits. Brokers use the credentials on the host and only answer requests through IPC directories mounted `ro` (`run.sh:275,306`). The secret broker never returns secret values (`secret-broker.py:21,123`).
 - **Publication goes through a trusted mirror, not the agent's `.git`.** The agent's history arrives as a bundle. The host verifies it (`publish.sh:190-191`), runs `fsck --strict` (`198`), confirms the head (`199`), and accepts only fast-forwards (`201-205`). Divergence is kept for inspection instead of being forced (`publish.sh:134-135`, `agent-git.sh:138-139`).
 - **Git operations on agent-controlled repos run in a network-less, resource-limited container** (`publish.sh:146-147`). They reject credential-bearing remote, config, and submodule URLs (`agent-git.sh:11-25`).
 - **The container is bounded:** `no-new-privileges`, pids/memory/CPU limits (`run.sh:316-319`), a wall-clock timeout with a KILL fallback (`run.sh:348`), and rootless Podman enforced at install (`install.sh:27`).
 - **The outcome file is validated before it is trusted:** it must be a regular file (not a symlink), ≤64 KiB, contain exactly one JSON object with the matching session id, an enum outcome, and a bounded control-free summary (`session-outcome.sh:9-19`).
 - **Changes to the trusted runtime need operator action.** `run.sh` executes installed copies from `RUNTIME_DIR` (`run.sh:11-18`), which change only when the operator runs `install.sh` (`install.sh:75-87`). §4.3 covers the exceptions.
-- **The upstream test suite is substantive.** `tests/test_runtime.py` exercises `run.sh` end to end with fake publishers (for example `tests/test_runtime.py:80-88,234`).
+- **The upstream test suite is substantive.** `tests/test_runtime.py` exercises `run.sh` end to end with a fake Podman and fixture repos, for example outcome handling and preservation (`tests/test_runtime.py:230-251`), timeout (`tests/test_runtime.py:258-261`), and rejecting a Bitwarden token path inside the repo (`tests/test_runtime.py:357-361`). `tests/test_runtime.py:74-88` covers marker validation only. In this environment the suite fails (§6 R5).
 
 ## 3. Safety guarantees — qualified to what `run.sh` actually enforces
 
@@ -65,10 +65,28 @@ Session lifecycle in `run.sh`:
 
 The marker is therefore a self-report by the agent, checked for shape and session id. It is not an attestation. It controls the outcome label, whether a `FAILED` session skips publishing (`run.sh:415-418`), and early termination.
 
-### 3.3 Other boundaries that are policy rather than enforcement
+### 3.3 Credential isolation covers specific files and paths only
 
-- The `git push`/`gh` denials (`run.sh:150-156`) are OpenCode permission patterns, not a sandbox, and the container has default network access (no `--network` in `run.sh:314-341`). What actually prevents unauthorised pushes is that no credentials are present (§2).
-- `runlog.jsonl` is described as the "session audit history" (`AGENTS.md`), but it is an ordinary file in the agent-writable repo. The agent also appends to it (`commitment-log.sh:31`). It is not tamper-evident. The first record, `runlog.jsonl:1`, uses a hand-made session id (`autonomous-20260913T213000`) and is out of timestamp order with line 2.
+| Credential | Checked by | Paths it must be outside of | Not checked |
+|---|---|---|---|
+| Bitwarden machine token (`BITWARDEN_SECRETS_TOKEN_FILE`, default `$CONFIG_HOME/commitment/bitwarden-secrets-token`, `run.sh:78`) | `run.sh:79-85`, always; the secret broker again when secrets are enabled (`secret-broker.py:326-329`) | Five directories: `COMMITMENT_REPO`, `LAB_REPO`, `$STATE_DIR/opencode-config`, `$STATE_DIR/opencode-data`, `$STATE_DIR/outcomes` (`run.sh:80`). The broker receives the same five directories, except that it gets the per-session outcome directory instead of `$STATE_DIR/outcomes` (`run.sh:266-267`, `run.sh:231`) | The mounted single files `OUTCOME_HELPER`, `LOG_HELPER`, `commitment-secret.py`, and `commitment-plan.py` (`run.sh:258,286,313,324`). A token path that is one of those files is accepted (reproduced, §6 R6) |
+| CheaperInference planner key (`CHEAPERINFERENCE_API_KEY_FILE`) | `run.sh:86-95`; the planner broker again (`planner-broker.py:71-80`, `run.sh:294-298`) | The same five directories plus the four helper files (`run.sh:87-90`) | — |
+| GitHub tokens (`COMMITMENT_GITHUB_TOKEN_FILE`, `LAB_GITHUB_TOKEN_FILE`, `config.example.env:48-49`) | `publish.sh:46-65`, only when the file exists at check time (`publish.sh:48`) | The same five directories as Bitwarden (`publish.sh:53`), and the file must not be group/world accessible (`publish.sh:62-64`) | The four helper files |
+| `BWS_ACCESS_TOKEN`, `OPENROUTER_API_KEY`, `CHEAPERINFERENCE_API_KEY` in the host environment | Unset at `run.sh:24,28` | — | — |
+
+What is assumed rather than enforced:
+
+- No check covers the per-session broker IPC directories (`run.sh:262,289`, both under `$STATE_DIR` and mounted `ro` at `run.sh:275,306`). A token is only safe there if the operator does not put one there.
+- The checks resolve symlinks at check time (`readlink -m` at `run.sh:79,81`; `readlink -f` at `publish.sh:52,55`). Hard links to a token placed inside a mounted directory are not detected, and neither are changes made after the check.
+- Any other host credential (for example SSH keys, cloud CLI config, or another service's token) is protected only because the operator did not place it under a mounted path. No code checks for it.
+- The container has default network access plus `host.containers.internal` mapped to the host gateway (`run.sh:314-315`). Services on the host that trust local network clients without a credential are reachable.
+
+So the accurate statement is: the four named credentials above are kept out of the listed mount sources by path checks, if the default layout and these assumptions hold. This review does not claim that no credential is present in the sandbox.
+
+### 3.4 Other boundaries that are policy rather than enforcement
+
+- The `git push`/`gh` denials (`run.sh:150-156`) are OpenCode permission patterns, not a sandbox, and the container has default network access (no `--network` in `run.sh:314-341`). What actually prevents unauthorised pushes is that the GitHub token files are used only by host-side `publish.sh` and are path-checked against the repo, OpenCode, and outcome directories (`publish.sh:46-65`). This holds only under the configuration assumptions in §3.3. It is not a guarantee that no credential of any kind is reachable from the container.
+- `runlog.jsonl` is described as the "session audit history" (`AGENTS.md:11`), but it is an ordinary file in the agent-writable repo. The agent also appends to it (`commitment-log.sh:31`). It is not tamper-evident. The first record, `runlog.jsonl:1`, uses a hand-made session id (`autonomous-20260913T213000`) and is out of timestamp order with line 2.
 
 ## 4. Risks
 
@@ -77,6 +95,7 @@ The marker is therefore a self-report by the agent, checked for shape and sessio
 - **S1 — The self-reported outcome decides whether work is published** (§3.2). Severity: medium. It is limited by fast-forward-only import (`publish.sh:201-205`) and by publication being off unless `PUBLISH_MODE=push`.
 - **S2 — Best-effort preservation** (§3.1). Severity: low to medium. Work stays on disk, but an unattended timer run may leave it uncommitted with only a journal note.
 - **S3 — Broad in-container authority.** Everything is allowed: bash, webfetch, websearch (`run.sh:143-156`), plus network access and write access to both repos. This is intended by `MISSION.md:13-33`. It means that prompt-injected web content can modify the agent's own instructions and the trusted-runtime sources (activation of the latter is gated; see 4.3).
+- **S4 — Credential path checks are narrower than they look** (§3.3). Severity: low. The Bitwarden and GitHub checks skip the mounted helper files (`run.sh:80`, `publish.sh:53`), and no check covers the broker IPC directories or credentials other than the four named in §3.3. Exploiting this needs an unusual operator configuration.
 
 ### 4.2 Determinism and correctness
 
@@ -88,11 +107,13 @@ Each of these was confirmed by reproduction or by the repo's own tests (§6):
 - **D4 — Operator inbox context was lost.** At `b3a86e0` (v0.4.0), `inbox-context.sh` was an executable script that printed `Operator inbox file:` lines. At HEAD it is a mode-`0644` library of shell functions with no main body (`inbox-context.sh:1-138`, mode change in `3d0a8c9`). `run.sh:52` now `die`s when the file is not executable (R5). After `install -m 0755` it would print nothing, so operator inbox items would disappear from the prompt (`run.sh:173-176`).
 - **D5 — `>>2` writes to a file named `2`.** `session-outcome.sh:39` and `track-resources.sh:26-27` use `>>2` where `>&2` was probably meant. The committed file `2` at the repo root (`2:1-2`, added in `18389ee`) shows the same mistake. Its text, `Generating morning report...`, does not appear in the current code, so it was probably written by an earlier version of this redirect. `session-outcome.sh:39` also calls `/workspace/commitment/generate-morning-report.sh` by absolute path (R3).
 - **D6 — `AGENT_SUMMARY` is not passed to `finalize`.** `run.sh:402` passes only exit status and outcome, so `agent-git.sh:77-85` never adds the work description to commit messages. Recent history (`checkpoint: … after session exit N`) matches this.
-- **D7 — Most sessions end without a valid outcome.** Across all `session_end` records in `runlog.jsonl`: 47 `CHECKPOINT_UNFINISHED`, 17 `FAILED`, 18 `NOOP`, 6 `COMMITTED_CHANGE`. Of these, 46 are "No valid outcome; changed work preserved as unfinished". Several recent sessions ended with exit 137, i.e. the timeout with `--kill-after` (`runlog.jsonl`, 2026-09-24/25 entries; `run.sh:348`).
+- **D7 — Most sessions end without a valid outcome.** Across the 88 `session_end` records in `runlog.jsonl:1-203` (counted with a Python script over every line): 47 `CHECKPOINT_UNFINISHED`, 17 `FAILED`, 18 `NOOP`, 6 `COMMITTED_CHANGE`. Of these, 46 have the summary "No valid outcome; changed work preserved as unfinished" (the text written by `run.sh:386-388`). Five sessions ended with exit 137 (`runlog.jsonl:157,171,173,197,199`).
+  - *Evidence:* 137 is 128 + SIGKILL. The runlog records only the status, not what sent the signal.
+  - *Inference, not proven:* these were probably session timeouts. `timeout --kill-after=30` sends KILL 30 s after TERM (`run.sh:348`). Each of the five sessions lasted exactly 2:00:43 from the start time in its session id (format from `run.sh:70`) to its `ts`, which fits the example `SESSION_TIMEOUT=7200` (`config.example.env:17`) plus the 30 s kill delay. The host's actual `SESSION_TIMEOUT` was not observed. The exit status alone could also come from the 8 GiB memory limit (`run.sh:318`) or from an external kill.
 
 ### 4.3 Self-modification loops
 
-- **L1 — The agent rewrites trusted-runtime sources.** Commit `3d0a8c9` changed `run.sh`, `session-outcome.sh`, and `inbox-context.sh`, which introduced D1–D5. The install gate (`AGENTS.md`; `install.sh:75-87`) is the only control. The operator is asked to reinstall "when activation would materially improve usefulness" (`AGENTS.md`). If they do so without review, these regressions become active.
+- **L1 — The agent rewrites trusted-runtime sources.** Commit `3d0a8c9` changed `run.sh`, `session-outcome.sh`, and `inbox-context.sh`, which introduced D1–D5. The install gate (`AGENTS.md:27-30`; `install.sh:75-87`) is the only control. The operator is asked to reinstall "when activation would materially improve usefulness" (`AGENTS.md:32-33`). If they do so without review, these regressions become active.
 - **L2 — The install gate can be bypassed.** Once the current `session-outcome.sh` is installed, line 39 runs an agent-writable script (`/workspace/commitment/generate-morning-report.sh`, which sources `/workspace/commitment/inbox-context.sh`, `generate-morning-report.sh:6,16`) every time an outcome is recorded. This runs inside the container, where the agent can already execute code, so it is not a privilege escalation. It does mean that part of an installed helper's behaviour changes without reinstall. The `--read` path the host uses exits at `session-outcome.sh:19`, before line 39.
 - **L3 — Instructions and prompt context are live without reinstall.** `.opencode/agents/commitment.md`, `AGENTS.md`, `MISSION.md`, and `CURRENT.md` are read from the agent-writable repo. `queue-context.sh:13-16` and `session-continuity.sh:8-12` put the contents of the agent-editable `inbox/agenda.md` into the next session's prompt. Text written by one session therefore becomes instructions for the next.
 - **L4 — Self-assessment drifts from reality.** `CURRENT.md:1-5,26-31` says "ALL FEATURES COMPLETE" and "all automated tests passing". The "tests" behind that claim only check that files exist or contain certain strings (`test-resource-tracking.sh:9-40`). The repo's real suite fails (R5). Because `CURRENT.md` is the main handoff between sessions (`.opencode/agents/commitment.md:12-18`), the false status carries forward.
@@ -105,7 +126,8 @@ Each of these was confirmed by reproduction or by the repo's own tests (§6):
 4. **Fix the trap and redirection bugs (D2, D5, D6).** Initialise `resource_tracker_pid=''` before `trap cleanup EXIT`. Replace `>>2` with `>&2` and delete the stray `2` file. Pass `AGENT_SUMMARY` to `finalize`.
 5. **Remove agent-writable code paths from installed helpers (L2).** Installed helpers should not call into `/workspace/commitment/*`.
 6. **Separate the audit log from agent-writable state.** Mirror `session_start`/`session_end` into the host journal or a host-only file, so the runlog can be checked for tampering.
-7. **Make agent-written status verifiable (L4).** Require `CURRENT.md` test claims to name a command that the next session re-runs, and prefer `tests/test.sh` over grep-based checks.
+7. **Use one mount list for every credential check (S4).** Build the list once from the actual `container_args` sources (`run.sh:320-328`) and use it at `run.sh:80-95`, `run.sh:266-267`, `run.sh:295-298`, and `publish.sh:53`.
+8. **Make agent-written status verifiable (L4).** Require `CURRENT.md` test claims to name a command that the next session re-runs, and prefer `tests/test.sh` over grep-based checks.
 
 ## 6. Verification log (this review)
 
@@ -115,9 +137,10 @@ Each of these was confirmed by reproduction or by the repo's own tests (§6):
 | R2 | `bash -c 'set -euo pipefail; cleanup(){ if [[ -n $resource_tracker_pid ]]; then :; fi; echo done; }; trap cleanup EXIT; exit 1'` | `resource_tracker_pid: unbound variable`; `done` is never printed. |
 | R3 | `bash -c 'set -euo pipefail; false >>2 && echo ok >>2 \|\| echo "not generated" >>2'` in a temp dir | Creates a file named `2` containing `not generated`. |
 | R4 | In a temp dir: `ln t1 outcome` (ok) → `ln t2 outcome` (fails: File exists) → `rm -f outcome; ln t2 outcome` (ok, content B) → `mv -f t3 outcome` (ok, content C) | Shows that `ln` blocks only a second creation. Anything with write access to the directory can replace the marker. The full helper could not be run here because `jq` is not installed in this environment. |
-| R5 | `python3 -IB tests/test_runtime.py` | `Ran 25 tests … FAILED (failures=24, errors=3)`. The main cause (15 failures, plus 2 that fail for the same reason) is `commitment: inbox context helper not installed: …/runtime/inbox-context.sh`, because the file is mode `0644` (D4). Other failures come from `jq` missing in this environment (`jq: command not found`; `install: required command not found: jq`) and one `PermissionError` executing `inbox-context.sh`. |
+| R5 | `python3 -IB tests/test_runtime.py` (as run by `tests/test.sh:13`) | `Ran 25 tests … FAILED (failures=24, errors=3)`. The main cause (15 failures, plus 2 that fail for the same reason) is `commitment: inbox context helper not installed: …/runtime/inbox-context.sh`, because the file is mode `0644` (D4). Other failures come from `jq` missing in this environment (`jq: command not found`; `install: required command not found: jq`) and one `PermissionError` executing `inbox-context.sh`. |
+| R6 | In a temp dir, ran `run.sh:78-95` via `eval "$(sed -n 78,95p run.sh)"` with fixture paths and `OUTCOME_HELPER=$RUNTIME_DIR/session-outcome.sh`. Case A: `BITWARDEN_SECRETS_TOKEN_FILE=$OUTCOME_HELPER`. Case B: token at `$COMMITMENT_REPO/token`. Case C: `CHEAPERINFERENCE_API_KEY_FILE=$OUTCOME_HELPER` | A: accepted (no `die`), so a Bitwarden token at a mounted helper-file path passes the check. B: `die: Bitwarden token path must stay outside all creative mounts`. C: `die: CheaperInference key path must stay outside all creative mounts`. This confirms §3.3: the planner check covers the helper files and the Bitwarden check does not. |
 
-No repository code was changed by this review. See §7 for why no fix was applied.
+No repository code was changed by this review. See §7 for why no fix was applied. The Bitwarden check gap (R6) is reported, not fixed. Its fix would be to use the planner list at `run.sh:87-90` for `run.sh:80` and `run.sh:266-267`, and the same for `publish.sh:53`.
 
 ## 7. Retry investigation: the previous failed architecture-review run
 
